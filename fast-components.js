@@ -793,8 +793,14 @@ class BindingObserverImplementation extends SubscriberSet {
 
     if (prev !== null) {
       if (!this.needsRefresh) {
+        // Declaring the variable prior to assignment below circumvents
+        // a bug in Angular's optimization process causing infinite recursion
+        // of this watch() method. Details https://github.com/microsoft/fast/issues/4969
+        let prevValue;
         watcher = void 0;
-        const prevValue = prev.propertySource[prev.propertyName];
+        /* eslint-disable-next-line */
+
+        prevValue = prev.propertySource[prev.propertyName];
         watcher = this;
 
         if (propertySource === prevValue) {
@@ -4073,7 +4079,7 @@ class StartEnd {
  * @public
  */
 
-const endTemplate = html`<span part="end" ${ref("endContainer")}><slot name="end" ${ref("end")}@slotchange="${x => x.handleEndContentChange()}"></slot></span>`;
+const endTemplate = html`<span part="end" ${ref("endContainer")}><slot name="end" ${ref("end")} @slotchange="${x => x.handleEndContentChange()}"></slot></span>`;
 /**
  * The template for the start element.
  * For use with {@link StartEnd}
@@ -4081,14 +4087,14 @@ const endTemplate = html`<span part="end" ${ref("endContainer")}><slot name="end
  * @public
  */
 
-const startTemplate = html`<span part="start" ${ref("startContainer")}><slot name="start" ${ref("start")}@slotchange="${x => x.handleStartContentChange()}"></slot></span>`;
+const startTemplate = html`<span part="start" ${ref("startContainer")}><slot name="start" ${ref("start")} @slotchange="${x => x.handleStartContentChange()}"></slot></span>`;
 
 /**
  * The template for the {@link @microsoft/fast-foundation#(AccordionItem:class)} component.
  * @public
  */
 
-const accordionItemTemplate = (context, definition) => html`<template class="${x => x.expanded ? "expanded" : ""}" slot="item"><div class="heading" part="heading" role="heading" aria-level="${x => x.headinglevel}"><button class="button" part="button" ${ref("expandbutton")}aria-expanded="${x => x.expanded}" aria-controls="${x => x.id}-panel" id="${x => x.id}" @click="${(x, c) => x.clickHandler(c.event)}"><span class="heading"><slot name="heading" part="heading"></slot></span></button>${startTemplate} ${endTemplate}<span class="icon" part="icon" aria-hidden="true"><slot name="expanded-icon" part="expanded-icon">${definition.expandedIcon || ""}</slot><slot name="collapsed-icon" part="collapsed-icon">${definition.collapsedIcon || ""}</slot><span></div><div class="region" part="region" id="${x => x.id}-panel" role="region" aria-labelledby="${x => x.id}"><slot></slot></div></template>`;
+const accordionItemTemplate = (context, definition) => html`<template class="${x => x.expanded ? "expanded" : ""}" slot="item"><div class="heading" part="heading" role="heading" aria-level="${x => x.headinglevel}"><button class="button" part="button" ${ref("expandbutton")} aria-expanded="${x => x.expanded}" aria-controls="${x => x.id}-panel" id="${x => x.id}" @click="${(x, c) => x.clickHandler(c.event)}"><span class="heading"><slot name="heading" part="heading"></slot></span></button>${startTemplate} ${endTemplate}<span class="icon" part="icon" aria-hidden="true"><slot name="expanded-icon" part="expanded-icon">${definition.expandedIcon || ""}</slot><slot name="collapsed-icon" part="collapsed-icon">${definition.collapsedIcon || ""}</slot><span></div><div class="region" part="region" id="${x => x.id}-panel" role="region" aria-labelledby="${x => x.id}"><slot></slot></div></template>`;
 
 /*! *****************************************************************************
 Copyright (c) Microsoft Corporation.
@@ -4649,12 +4655,16 @@ const DI = Object.freeze({
    * @returns The same class, with a static `register` method that takes a container and returns the appropriate resolver.
    *
    * @example
+   * On an existing class
    * ```ts
-   * // On an existing class
    * class Foo { }
    * DI.transient(Foo);
+   * ```
    *
-   * // Inline declaration
+   * @example
+   * Inline declaration
+   *
+   * ```ts
    * const Foo = DI.transient(class { });
    * // Foo is now strongly typed with register
    * Foo.register(container);
@@ -4679,12 +4689,15 @@ const DI = Object.freeze({
    * @param target - The class / constructor function to register as a singleton.
    * @returns The same class, with a static `register` method that takes a container and returns the appropriate resolver.
    * @example
+   * On an existing class
    * ```ts
-   * // On an existing class
    * class Foo { }
    * DI.singleton(Foo);
+   * ```
    *
-   * // Inline declaration
+   * @example
+   * Inline declaration
+   * ```ts
    * const Foo = DI.singleton(class { });
    * // Foo is now strongly typed with register
    * Foo.register(container);
@@ -7341,6 +7354,9 @@ const keyArrowLeft = "ArrowLeft";
 const keyArrowRight = "ArrowRight";
 const keyArrowUp = "ArrowUp";
 const keyEnter = "Enter";
+const keyEscape = "Escape";
+const keyBack = "Backspace";
+const keyDelete = "Delete";
 const ArrowKeys = {
   ArrowDown: keyArrowDown,
   ArrowLeft: keyArrowLeft,
@@ -8239,6 +8255,15 @@ class AnchoredRegion extends FoundationElement {
 
     this.horizontalDefaultPosition = "unset";
     /**
+     * Whether the region remains in the viewport (ie. detaches from the anchor) on the horizontal axis
+     *
+     * @beta
+     * @remarks
+     * HTML Attribute: horizontal-viewport-lock
+     */
+
+    this.horizontalViewportLock = false;
+    /**
      * Whether the region overlaps the anchor on the horizontal axis
      *
      * @beta
@@ -8277,6 +8302,15 @@ class AnchoredRegion extends FoundationElement {
      */
 
     this.verticalDefaultPosition = "unset";
+    /**
+     * Whether the region remains in the viewport (ie. detaches from the anchor) on the vertical axis
+     *
+     * @beta
+     * @remarks
+     * HTML Attribute: vertical-viewport-lock
+     */
+
+    this.verticalViewportLock = false;
     /**
      * Whether the region overlaps the anchor on the vertical axis
      *
@@ -8337,8 +8371,13 @@ class AnchoredRegion extends FoundationElement {
 
     this.initialLayoutComplete = false;
     this.resizeDetector = null;
+    /**
+     * base offsets between the positioner's base position and the anchor's
+     */
+
+    this.baseHorizontalOffset = 0;
+    this.baseVerticalOffset = 0;
     this.pendingPositioningUpdate = false;
-    this.pendingLayoutUpdate = false;
     this.pendingReset = false;
     this.currentDirection = Direction.ltr;
     this.regionVisible = false; // defines how big a difference in pixels there must be between states to
@@ -8350,25 +8389,9 @@ class AnchoredRegion extends FoundationElement {
      */
 
     this.update = () => {
-      if (this.viewportRect === null || this.regionDimension === null) {
-        this.requestLayoutUpdate();
-        return;
+      if (!this.pendingPositioningUpdate) {
+        this.requestPositionUpdates();
       }
-
-      this.requestPositionUpdates();
-    };
-    /**
-     * Public function to enable authors to update the layout based on changes in anchor offset without resorting
-     * to a more epensive update call
-     */
-
-
-    this.updateAnchorOffset = (horizontalOffsetDelta, verticalOffsetDelta) => {
-      this.anchorLeft = this.anchorLeft + horizontalOffsetDelta;
-      this.anchorRight = this.anchorRight + horizontalOffsetDelta;
-      this.anchorTop = this.anchorTop + verticalOffsetDelta;
-      this.anchorBottom = this.anchorBottom + verticalOffsetDelta;
-      this.updateLayout();
     };
     /**
      * starts observers
@@ -8386,6 +8409,7 @@ class AnchoredRegion extends FoundationElement {
 
       if (this.resizeDetector !== null) {
         this.resizeDetector.observe(this.anchorElement);
+        this.resizeDetector.observe(this);
       }
     };
     /**
@@ -8462,16 +8486,10 @@ class AnchoredRegion extends FoundationElement {
 
       this.pendingPositioningUpdate = false;
 
-      if (!this.applyIntersectionEntries(entries) || this.regionRect === null) {
+      if (!this.applyIntersectionEntries(entries)) {
         return;
       }
 
-      if (!this.initialLayoutComplete) {
-        this.containingBlockHeight = this.regionRect.height;
-        this.containingBlockWidth = this.regionRect.width;
-      }
-
-      this.updateRegionOffset(this.regionRect);
       this.updateLayout();
     };
     /**
@@ -8489,16 +8507,32 @@ class AnchoredRegion extends FoundationElement {
       } // don't update the dom unless there is a significant difference in rect positions
 
 
-      if (this.regionRect === null || this.anchorRect === null || this.viewportRect === null || this.isRectDifferent(this.anchorRect, anchorEntry.boundingClientRect) || this.isRectDifferent(this.viewportRect, viewportEntry.boundingClientRect) || this.isRectDifferent(this.regionRect, regionEntry.boundingClientRect)) {
+      if (!this.regionVisible || this.regionRect === undefined || this.anchorRect === undefined || this.viewportRect === undefined || this.isRectDifferent(this.anchorRect, anchorEntry.boundingClientRect) || this.isRectDifferent(this.viewportRect, viewportEntry.boundingClientRect) || this.isRectDifferent(this.regionRect, regionEntry.boundingClientRect)) {
         this.regionRect = regionEntry.boundingClientRect;
         this.anchorRect = anchorEntry.boundingClientRect;
-        this.viewportRect = viewportEntry.boundingClientRect;
-        this.handleRegionIntersection(regionEntry);
-        this.handleAnchorIntersection(anchorEntry);
+
+        if (this.viewportElement === document.documentElement) {
+          this.viewportRect = new DOMRectReadOnly(viewportEntry.boundingClientRect.x + document.documentElement.scrollLeft, viewportEntry.boundingClientRect.y + document.documentElement.scrollTop, viewportEntry.boundingClientRect.width, viewportEntry.boundingClientRect.height);
+        } else {
+          this.viewportRect = viewportEntry.boundingClientRect;
+        }
+
+        this.updateRegionOffset();
         return true;
       }
 
       return false;
+    };
+    /**
+     *  Update the offset values
+     */
+
+
+    this.updateRegionOffset = () => {
+      if (this.anchorRect && this.regionRect) {
+        this.baseHorizontalOffset = this.baseHorizontalOffset + (this.anchorRect.left - this.regionRect.left) + (this.translateX - this.baseHorizontalOffset);
+        this.baseVerticalOffset = this.baseVerticalOffset + (this.anchorRect.top - this.regionRect.top) + (this.translateY - this.baseVerticalOffset);
+      }
     };
     /**
      *  compare rects to see if there is enough change to justify a DOM update
@@ -8513,40 +8547,11 @@ class AnchoredRegion extends FoundationElement {
       return false;
     };
     /**
-     *  Update data based on anchor intersections
-     */
-
-
-    this.handleAnchorIntersection = anchorEntry => {
-      this.anchorTop = anchorEntry.boundingClientRect.top;
-      this.anchorRight = anchorEntry.boundingClientRect.right;
-      this.anchorBottom = anchorEntry.boundingClientRect.bottom;
-      this.anchorLeft = anchorEntry.boundingClientRect.left;
-      this.anchorHeight = anchorEntry.boundingClientRect.height;
-      this.anchorWidth = anchorEntry.boundingClientRect.width;
-    };
-    /**
-     *  Update data based on positioner intersections
-     */
-
-
-    this.handleRegionIntersection = regionEntry => {
-      const regionRect = regionEntry.boundingClientRect;
-      this.regionDimension = {
-        height: regionRect.height,
-        width: regionRect.width
-      };
-    };
-    /**
      *  Handle resize events
      */
 
 
     this.handleResize = entries => {
-      if (!this.initialLayoutComplete) {
-        return;
-      }
-
       this.update();
     };
     /**
@@ -8578,12 +8583,11 @@ class AnchoredRegion extends FoundationElement {
 
 
     this.updateLayout = () => {
-      this.pendingLayoutUpdate = false;
-      let desiredVerticalPosition = "undefined";
-      let desiredHorizontalPosition = "undefined";
+      let desiredVerticalPosition = undefined;
+      let desiredHorizontalPosition = undefined;
 
       if (this.horizontalPositioningMode !== "uncontrolled") {
-        const horizontalOptions = this.getHorizontalPositioningOptions();
+        const horizontalOptions = this.getPositioningOptions(this.horizontalInset);
 
         if (this.horizontalDefaultPosition !== "unset") {
           let dirCorrectedHorizontalDefaultPosition = this.horizontalDefaultPosition;
@@ -8607,41 +8611,51 @@ class AnchoredRegion extends FoundationElement {
 
           switch (dirCorrectedHorizontalDefaultPosition) {
             case "left":
-              desiredHorizontalPosition = this.horizontalInset ? "insetLeft" : "left";
+              desiredHorizontalPosition = this.horizontalInset ? "insetStart" : "start";
               break;
 
             case "right":
-              desiredHorizontalPosition = this.horizontalInset ? "insetRight" : "right";
+              desiredHorizontalPosition = this.horizontalInset ? "insetEnd" : "end";
               break;
           }
         }
 
-        const horizontalThreshold = this.horizontalThreshold !== undefined ? this.horizontalThreshold : this.regionDimension.width;
+        const horizontalThreshold = this.horizontalThreshold !== undefined ? this.horizontalThreshold : this.regionRect !== undefined ? this.regionRect.width : 0;
+        const anchorLeft = this.anchorRect !== undefined ? this.anchorRect.left : 0;
+        const anchorRight = this.anchorRect !== undefined ? this.anchorRect.right : 0;
+        const anchorWidth = this.anchorRect !== undefined ? this.anchorRect.width : 0;
+        const viewportLeft = this.viewportRect !== undefined ? this.viewportRect.left : 0;
+        const viewportRight = this.viewportRect !== undefined ? this.viewportRect.right : 0;
 
-        if (desiredHorizontalPosition === "undefined" || !(this.horizontalPositioningMode === "locktodefault") && this.getAvailableWidth(desiredHorizontalPosition) < horizontalThreshold) {
-          desiredHorizontalPosition = this.getAvailableWidth(horizontalOptions[0]) > this.getAvailableWidth(horizontalOptions[1]) ? horizontalOptions[0] : horizontalOptions[1];
+        if (desiredHorizontalPosition === undefined || !(this.horizontalPositioningMode === "locktodefault") && this.getAvailableSpace(desiredHorizontalPosition, anchorLeft, anchorRight, anchorWidth, viewportLeft, viewportRight) < horizontalThreshold) {
+          desiredHorizontalPosition = this.getAvailableSpace(horizontalOptions[0], anchorLeft, anchorRight, anchorWidth, viewportLeft, viewportRight) > this.getAvailableSpace(horizontalOptions[1], anchorLeft, anchorRight, anchorWidth, viewportLeft, viewportRight) ? horizontalOptions[0] : horizontalOptions[1];
         }
       }
 
       if (this.verticalPositioningMode !== "uncontrolled") {
-        const verticalOptions = this.getVerticalPositioningOptions();
+        const verticalOptions = this.getPositioningOptions(this.verticalInset);
 
         if (this.verticalDefaultPosition !== "unset") {
           switch (this.verticalDefaultPosition) {
             case "top":
-              desiredVerticalPosition = this.verticalInset ? "insetTop" : "top";
+              desiredVerticalPosition = this.verticalInset ? "insetStart" : "start";
               break;
 
             case "bottom":
-              desiredVerticalPosition = this.verticalInset ? "insetBottom" : "bottom";
+              desiredVerticalPosition = this.verticalInset ? "insetEnd" : "end";
               break;
           }
         }
 
-        const verticalThreshold = this.verticalThreshold !== undefined ? this.verticalThreshold : this.regionDimension.height;
+        const verticalThreshold = this.verticalThreshold !== undefined ? this.verticalThreshold : this.regionRect !== undefined ? this.regionRect.height : 0;
+        const anchorTop = this.anchorRect !== undefined ? this.anchorRect.top : 0;
+        const anchorBottom = this.anchorRect !== undefined ? this.anchorRect.bottom : 0;
+        const anchorHeight = this.anchorRect !== undefined ? this.anchorRect.height : 0;
+        const viewportTop = this.viewportRect !== undefined ? this.viewportRect.top : 0;
+        const viewportBottom = this.viewportRect !== undefined ? this.viewportRect.bottom : 0;
 
-        if (desiredVerticalPosition === "undefined" || !(this.verticalPositioningMode === "locktodefault") && this.getAvailableHeight(desiredVerticalPosition) < verticalThreshold) {
-          desiredVerticalPosition = this.getAvailableHeight(verticalOptions[0]) > this.getAvailableHeight(verticalOptions[1]) ? verticalOptions[0] : verticalOptions[1];
+        if (desiredVerticalPosition === undefined || !(this.verticalPositioningMode === "locktodefault") && this.getAvailableSpace(desiredVerticalPosition, anchorTop, anchorBottom, anchorHeight, viewportTop, viewportBottom) < verticalThreshold) {
+          desiredVerticalPosition = this.getAvailableSpace(verticalOptions[0], anchorTop, anchorBottom, anchorHeight, viewportTop, viewportBottom) > this.getAvailableSpace(verticalOptions[1], anchorTop, anchorBottom, anchorHeight, viewportTop, viewportBottom) ? verticalOptions[0] : verticalOptions[1];
         }
       }
 
@@ -8667,11 +8681,10 @@ class AnchoredRegion extends FoundationElement {
         });
       }
 
-      if (positionChanged) {
-        // do a position check to ensure we're in the right spot
-        // temporary until method for recalculating offsets on position changes improved
-        this.requestPositionUpdates(); // emit change event
+      this.updatePositionClasses();
 
+      if (positionChanged) {
+        // emit change event
         this.$emit("positionchange", this, {
           bubbles: false
         });
@@ -8684,36 +8697,24 @@ class AnchoredRegion extends FoundationElement {
 
 
     this.updateRegionStyle = () => {
-      this.classList.toggle("top", this.verticalPosition === "top");
-      this.classList.toggle("bottom", this.verticalPosition === "bottom");
-      this.classList.toggle("inset-top", this.verticalPosition === "insetTop");
-      this.classList.toggle("inset-bottom", this.verticalPosition === "insetBottom");
-      this.classList.toggle("left", this.horizontalPosition === "left");
-      this.classList.toggle("right", this.horizontalPosition === "right");
-      this.classList.toggle("inset-left", this.horizontalPosition === "insetLeft");
-      this.classList.toggle("inset-right", this.horizontalPosition === "insetRight");
-      this.style.position = this.fixedPlacement ? "fixed" : "absolute";
-      this.style.transformOrigin = `${this.yTransformOrigin} ${this.xTransformOrigin}`;
+      this.style.width = this.regionWidth;
+      this.style.height = this.regionHeight;
+      this.style.transform = `translate(${this.translateX}px, ${this.translateY}px)`;
+    };
+    /**
+     *  Updates the css classes that reflect the current position of the element
+     */
 
-      if (this.horizontalPositioningMode === "uncontrolled") {
-        this.style.width = "unset";
-        this.style.right = "unset";
-        this.style.left = "unset";
-      } else {
-        this.style.width = this.regionWidth;
-        this.style.right = this.regionRight;
-        this.style.left = this.regionLeft;
-      }
 
-      if (this.verticalPositioningMode === "uncontrolled") {
-        this.style.height = "unset";
-        this.style.top = "unset";
-        this.style.bottom = "unset";
-      } else {
-        this.style.height = this.regionHeight;
-        this.style.top = this.regionTop;
-        this.style.bottom = this.regionBottom;
-      }
+    this.updatePositionClasses = () => {
+      this.classList.toggle("top", this.verticalPosition === "start");
+      this.classList.toggle("bottom", this.verticalPosition === "end");
+      this.classList.toggle("inset-top", this.verticalPosition === "insetStart");
+      this.classList.toggle("inset-bottom", this.verticalPosition === "insetEnd");
+      this.classList.toggle("left", this.horizontalPosition === "start");
+      this.classList.toggle("right", this.horizontalPosition === "end");
+      this.classList.toggle("inset-left", this.horizontalPosition === "insetStart");
+      this.classList.toggle("inset-right", this.horizontalPosition === "insetEnd");
     };
     /**
      * Get horizontal positioning state based on desired position
@@ -8721,237 +8722,164 @@ class AnchoredRegion extends FoundationElement {
 
 
     this.setHorizontalPosition = (desiredHorizontalPosition, nextPositionerDimension) => {
-      let right = null;
-      let left = null;
-      let xTransformOrigin = "left";
-
-      switch (desiredHorizontalPosition) {
-        case "left":
-          xTransformOrigin = "right";
-          right = this.containingBlockWidth - this.baseHorizontalOffset;
-          break;
-
-        case "insetLeft":
-          xTransformOrigin = "right";
-          right = this.containingBlockWidth - this.anchorWidth - this.baseHorizontalOffset;
-          break;
-
-        case "insetRight":
-          xTransformOrigin = "left";
-          left = this.baseHorizontalOffset;
-          break;
-
-        case "right":
-          xTransformOrigin = "left";
-          left = this.anchorWidth + this.baseHorizontalOffset;
-          break;
+      if (desiredHorizontalPosition === undefined || this.regionRect === undefined || this.anchorRect === undefined || this.viewportRect === undefined) {
+        return;
       }
 
-      this.xTransformOrigin = xTransformOrigin;
-      this.regionRight = right === null ? "unset" : `${right}px`;
-      this.regionLeft = left === null ? "unset" : `${left}px`;
-      this.horizontalPosition = desiredHorizontalPosition;
+      let nextRegionWidth = 0;
 
       switch (this.horizontalScaling) {
         case "anchor":
-          this.regionWidth = `${this.anchorWidth}px`;
-          break;
-
         case "fill":
-          this.regionWidth = `${nextPositionerDimension.width}px`;
+          nextRegionWidth = nextPositionerDimension.width;
+          this.regionWidth = `${nextRegionWidth}px`;
           break;
 
         case "content":
+          nextRegionWidth = this.regionRect.width;
           this.regionWidth = "unset";
           break;
       }
+
+      switch (desiredHorizontalPosition) {
+        case "start":
+          this.translateX = this.baseHorizontalOffset - nextRegionWidth;
+
+          if (this.horizontalViewportLock && this.anchorRect.left > this.viewportRect.right) {
+            this.translateX = this.translateX - (this.anchorRect.left - this.viewportRect.right);
+          }
+
+          break;
+
+        case "insetStart":
+          this.translateX = this.baseHorizontalOffset - nextRegionWidth + this.anchorRect.width;
+
+          if (this.horizontalViewportLock && this.anchorRect.right > this.viewportRect.right) {
+            this.translateX = this.translateX - (this.anchorRect.right - this.viewportRect.right);
+          }
+
+          break;
+
+        case "insetEnd":
+          this.translateX = this.baseHorizontalOffset;
+
+          if (this.horizontalViewportLock && this.anchorRect.left < this.viewportRect.left) {
+            this.translateX = this.translateX - (this.anchorRect.left - this.viewportRect.left);
+          }
+
+          break;
+
+        case "end":
+          this.translateX = this.baseHorizontalOffset + this.anchorRect.width;
+
+          if (this.horizontalViewportLock && this.anchorRect.right < this.viewportRect.left) {
+            this.translateX = this.translateX - (this.anchorRect.right - this.viewportRect.left);
+          }
+
+          break;
+      }
+
+      this.horizontalPosition = desiredHorizontalPosition;
     };
     /**
-     * Get vertical positioning state based on desired position
+     * Set vertical positioning state based on desired position
      */
 
 
     this.setVerticalPosition = (desiredVerticalPosition, nextPositionerDimension) => {
-      let top = null;
-      let bottom = null;
-      let yTransformOrigin = "top";
-
-      switch (desiredVerticalPosition) {
-        case "top":
-          yTransformOrigin = "bottom";
-          bottom = this.containingBlockHeight - this.baseVerticalOffset;
-          break;
-
-        case "insetTop":
-          yTransformOrigin = "bottom";
-          bottom = this.containingBlockHeight - this.baseVerticalOffset - this.anchorHeight;
-          break;
-
-        case "insetBottom":
-          yTransformOrigin = "top";
-          top = this.baseVerticalOffset;
-          break;
-
-        case "bottom":
-          yTransformOrigin = "top";
-          top = this.baseVerticalOffset + this.anchorHeight;
-          break;
+      if (desiredVerticalPosition === undefined || this.regionRect === undefined || this.anchorRect === undefined || this.viewportRect === undefined) {
+        return;
       }
 
-      this.yTransformOrigin = yTransformOrigin;
-      this.regionTop = top === null ? "unset" : `${top}px`;
-      this.regionBottom = bottom === null ? "unset" : `${bottom}px`;
-      this.verticalPosition = desiredVerticalPosition;
+      let nextRegionHeight = 0;
 
       switch (this.verticalScaling) {
         case "anchor":
-          this.regionHeight = `${this.anchorHeight}px`;
-          break;
-
         case "fill":
-          this.regionHeight = `${nextPositionerDimension.height}px`;
+          nextRegionHeight = nextPositionerDimension.height;
+          this.regionHeight = `${nextRegionHeight}px`;
           break;
 
         case "content":
+          nextRegionHeight = this.regionRect.height;
           this.regionHeight = "unset";
           break;
       }
+
+      switch (desiredVerticalPosition) {
+        case "start":
+          this.translateY = this.baseVerticalOffset - nextRegionHeight;
+
+          if (this.verticalViewportLock && this.anchorRect.top > this.viewportRect.bottom) {
+            this.translateY = this.translateY - (this.anchorRect.top - this.viewportRect.bottom);
+          }
+
+          break;
+
+        case "insetStart":
+          this.translateY = this.baseVerticalOffset - nextRegionHeight + this.anchorRect.height;
+
+          if (this.verticalViewportLock && this.anchorRect.bottom > this.viewportRect.bottom) {
+            this.translateY = this.translateY - (this.anchorRect.bottom - this.viewportRect.bottom);
+          }
+
+          break;
+
+        case "insetEnd":
+          this.translateY = this.baseVerticalOffset;
+
+          if (this.verticalViewportLock && this.anchorRect.top < this.viewportRect.top) {
+            this.translateY = this.translateY - (this.anchorRect.top - this.viewportRect.top);
+          }
+
+          break;
+
+        case "end":
+          this.translateY = this.baseVerticalOffset + this.anchorRect.height;
+
+          if (this.verticalViewportLock && this.anchorRect.bottom < this.viewportRect.top) {
+            this.translateY = this.translateY - (this.anchorRect.bottom - this.viewportRect.top);
+          }
+
+          break;
+      }
+
+      this.verticalPosition = desiredVerticalPosition;
     };
     /**
-     *  Update the offset values
+     *  Get available positions based on positioning mode
      */
 
 
-    this.updateRegionOffset = regionRect => {
-      if (this.horizontalPositioningMode === "uncontrolled") {
-        this.baseHorizontalOffset = this.anchorLeft - regionRect.left;
-      } else {
-        switch (this.horizontalPosition) {
-          case "undefined":
-            this.baseHorizontalOffset = this.anchorLeft - regionRect.left;
-            break;
-
-          case "left":
-            this.baseHorizontalOffset = this.baseHorizontalOffset + (this.anchorLeft - regionRect.right);
-            break;
-
-          case "insetLeft":
-            this.baseHorizontalOffset = this.baseHorizontalOffset + (this.anchorRight - regionRect.right);
-            break;
-
-          case "insetRight":
-            this.baseHorizontalOffset = this.baseHorizontalOffset + (this.anchorLeft - regionRect.left);
-            break;
-
-          case "right":
-            this.baseHorizontalOffset = this.baseHorizontalOffset + (this.anchorRight - regionRect.left);
-            break;
-        }
+    this.getPositioningOptions = inset => {
+      if (inset) {
+        return ["insetStart", "insetEnd"];
       }
 
-      if (this.verticalPositioningMode === "uncontrolled") {
-        this.baseVerticalOffset = this.anchorTop - regionRect.top;
-      } else {
-        switch (this.verticalPosition) {
-          case "undefined":
-            this.baseVerticalOffset = this.anchorTop - regionRect.top;
-            break;
-
-          case "top":
-            this.baseVerticalOffset = this.baseVerticalOffset + (this.anchorTop - regionRect.bottom);
-            break;
-
-          case "insetTop":
-            this.baseVerticalOffset = this.baseVerticalOffset + (this.anchorBottom - regionRect.bottom);
-            break;
-
-          case "insetBottom":
-            this.baseVerticalOffset = this.baseVerticalOffset + (this.anchorTop - regionRect.top);
-            break;
-
-          case "bottom":
-            this.baseVerticalOffset = this.baseVerticalOffset + (this.anchorBottom - regionRect.top);
-            break;
-        }
-      }
+      return ["start", "end"];
     };
     /**
-     *  Get available Horizontal positions based on positioning mode
+     *  Get the space available for a particular relative position
      */
 
 
-    this.getHorizontalPositioningOptions = () => {
-      if (this.horizontalInset) {
-        return ["insetLeft", "insetRight"];
+    this.getAvailableSpace = (positionOption, anchorStart, anchorEnd, anchorSpan, viewportStart, viewportEnd) => {
+      const spaceStart = anchorStart - viewportStart;
+      const spaceEnd = viewportEnd - (anchorStart + anchorSpan);
+
+      switch (positionOption) {
+        case "start":
+          return spaceStart;
+
+        case "insetStart":
+          return spaceStart + anchorSpan;
+
+        case "insetEnd":
+          return spaceEnd + anchorSpan;
+
+        case "end":
+          return spaceEnd;
       }
-
-      return ["left", "right"];
-    };
-    /**
-     * Get available Vertical positions based on positioning mode
-     */
-
-
-    this.getVerticalPositioningOptions = () => {
-      if (this.verticalInset) {
-        return ["insetTop", "insetBottom"];
-      }
-
-      return ["top", "bottom"];
-    };
-    /**
-     *  Get the width available for a particular horizontal position
-     */
-
-
-    this.getAvailableWidth = positionOption => {
-      if (this.viewportRect !== null) {
-        const spaceLeft = this.anchorLeft - this.viewportRect.left;
-        const spaceRight = this.viewportRect.right - (this.anchorLeft + this.anchorWidth);
-
-        switch (positionOption) {
-          case "left":
-            return spaceLeft;
-
-          case "insetLeft":
-            return spaceLeft + this.anchorWidth;
-
-          case "insetRight":
-            return spaceRight + this.anchorWidth;
-
-          case "right":
-            return spaceRight;
-        }
-      }
-
-      return 0;
-    };
-    /**
-     *  Get the height available for a particular vertical position
-     */
-
-
-    this.getAvailableHeight = positionOption => {
-      if (this.viewportRect !== null) {
-        const spaceAbove = this.anchorTop - this.viewportRect.top;
-        const spaceBelow = this.viewportRect.bottom - (this.anchorTop + this.anchorHeight);
-
-        switch (positionOption) {
-          case "top":
-            return spaceAbove;
-
-          case "insetTop":
-            return spaceAbove + this.anchorHeight;
-
-          case "insetBottom":
-            return spaceBelow + this.anchorHeight;
-
-          case "bottom":
-            return spaceBelow;
-        }
-      }
-
-      return 0;
     };
     /**
      * Get region dimensions
@@ -8960,16 +8888,20 @@ class AnchoredRegion extends FoundationElement {
 
     this.getNextRegionDimension = (desiredHorizontalPosition, desiredVerticalPosition) => {
       const newRegionDimension = {
-        height: this.regionDimension.height,
-        width: this.regionDimension.width
+        height: this.regionRect !== undefined ? this.regionRect.height : 0,
+        width: this.regionRect !== undefined ? this.regionRect.width : 0
       };
 
-      if (this.horizontalScaling === "fill") {
-        newRegionDimension.width = this.getAvailableWidth(desiredHorizontalPosition);
+      if (desiredHorizontalPosition !== undefined && this.horizontalScaling === "fill") {
+        newRegionDimension.width = this.getAvailableSpace(desiredHorizontalPosition, this.anchorRect !== undefined ? this.anchorRect.left : 0, this.anchorRect !== undefined ? this.anchorRect.right : 0, this.anchorRect !== undefined ? this.anchorRect.width : 0, this.viewportRect !== undefined ? this.viewportRect.left : 0, this.viewportRect !== undefined ? this.viewportRect.right : 0);
+      } else if (this.horizontalScaling === "anchor") {
+        newRegionDimension.width = this.anchorRect !== undefined ? this.anchorRect.width : 0;
       }
 
-      if (this.verticalScaling === "fill") {
-        newRegionDimension.height = this.getAvailableHeight(desiredVerticalPosition);
+      if (desiredVerticalPosition !== undefined && this.verticalScaling === "fill") {
+        newRegionDimension.height = this.getAvailableSpace(desiredVerticalPosition, this.anchorRect !== undefined ? this.anchorRect.top : 0, this.anchorRect !== undefined ? this.anchorRect.bottom : 0, this.anchorRect !== undefined ? this.anchorRect.height : 0, this.viewportRect !== undefined ? this.viewportRect.top : 0, this.viewportRect !== undefined ? this.viewportRect.bottom : 0);
+      } else if (this.verticalScaling === "anchor") {
+        newRegionDimension.height = this.anchorRect !== undefined ? this.anchorRect.height : 0;
       }
 
       return newRegionDimension;
@@ -8980,8 +8912,13 @@ class AnchoredRegion extends FoundationElement {
 
 
     this.startAutoUpdateEventListeners = () => {
-      window.addEventListener(eventResize, this.update);
-      window.addEventListener(eventScroll, this.update, true);
+      window.addEventListener(eventResize, this.update, {
+        passive: true
+      });
+      window.addEventListener(eventScroll, this.update, {
+        passive: true,
+        capture: true
+      });
 
       if (this.resizeDetector !== null && this.viewportElement !== null) {
         this.resizeDetector.observe(this.viewportElement);
@@ -9022,6 +8959,10 @@ class AnchoredRegion extends FoundationElement {
     this.updateForAttributeChange();
   }
 
+  horizontalViewportLockChanged() {
+    this.updateForAttributeChange();
+  }
+
   horizontalInsetChanged() {
     this.updateForAttributeChange();
   }
@@ -9039,6 +8980,10 @@ class AnchoredRegion extends FoundationElement {
   }
 
   verticalDefaultPositionChanged() {
+    this.updateForAttributeChange();
+  }
+
+  verticalViewportLockChanged() {
     this.updateForAttributeChange();
   }
 
@@ -9163,24 +9108,12 @@ class AnchoredRegion extends FoundationElement {
     this.requestReset();
   }
   /**
-   * Request a layout update if there are currently no open requests
-   */
-
-
-  requestLayoutUpdate() {
-    if (this.pendingLayoutUpdate === false && this.pendingReset === false) {
-      this.pendingLayoutUpdate = true;
-      DOM.queueUpdate(() => this.updateLayout());
-    }
-  }
-  /**
    * Request a reset if there are currently no open requests
    */
 
 
   requestReset() {
     if (this.$fastController.isConnected && this.pendingReset === false) {
-      this.pendingLayoutUpdate = false;
       this.setInitialState();
       DOM.queueUpdate(() => this.reset());
       this.pendingReset = true;
@@ -9194,33 +9127,19 @@ class AnchoredRegion extends FoundationElement {
   setInitialState() {
     this.initialLayoutComplete = false;
     this.regionVisible = false;
-    this.regionTop = "0";
-    this.regionRight = "0";
-    this.regionBottom = "0";
-    this.regionLeft = "0";
-    this.regionWidth = "100%";
-    this.regionHeight = "100%";
-    this.xTransformOrigin = "left";
-    this.yTransformOrigin = "top";
-    this.viewportRect = null;
-    this.regionRect = null;
-    this.anchorRect = null;
-    this.regionDimension = {
-      height: 0,
-      width: 0
-    };
-    this.anchorTop = 0;
-    this.anchorRight = 0;
-    this.anchorBottom = 0;
-    this.anchorLeft = 0;
-    this.anchorHeight = 0;
-    this.anchorWidth = 0;
-    this.verticalPosition = "undefined";
-    this.horizontalPosition = "undefined";
+    this.translateX = 0;
+    this.translateY = 0;
     this.baseHorizontalOffset = 0;
     this.baseVerticalOffset = 0;
+    this.viewportRect = undefined;
+    this.regionRect = undefined;
+    this.anchorRect = undefined;
+    this.verticalPosition = undefined;
+    this.horizontalPosition = undefined;
     this.style.opacity = "0";
     this.style.pointerEvents = "none";
+    this.style.position = this.fixedPlacement ? "fixed" : "absolute";
+    this.updatePositionClasses();
     this.updateRegionStyle();
   }
 
@@ -9238,6 +9157,11 @@ __decorate([attr({
 __decorate([attr({
   attribute: "horizontal-default-position"
 })], AnchoredRegion.prototype, "horizontalDefaultPosition", void 0);
+
+__decorate([attr({
+  attribute: "horizontal-viewport-lock",
+  mode: "boolean"
+})], AnchoredRegion.prototype, "horizontalViewportLock", void 0);
 
 __decorate([attr({
   attribute: "horizontal-inset",
@@ -9259,6 +9183,11 @@ __decorate([attr({
 __decorate([attr({
   attribute: "vertical-default-position"
 })], AnchoredRegion.prototype, "verticalDefaultPosition", void 0);
+
+__decorate([attr({
+  attribute: "vertical-viewport-lock",
+  mode: "boolean"
+})], AnchoredRegion.prototype, "verticalViewportLock", void 0);
 
 __decorate([attr({
   attribute: "vertical-inset",
@@ -9287,27 +9216,6 @@ __decorate([observable], AnchoredRegion.prototype, "anchorElement", void 0);
 __decorate([observable], AnchoredRegion.prototype, "viewportElement", void 0);
 
 __decorate([observable], AnchoredRegion.prototype, "initialLayoutComplete", void 0);
-
-/**
- * A flyout that always places itself below the anchor and has
- * a width to match the anchor
- */
-/**
- * A flyout that always places itself below the anchor, has
- * a width to match the anchor, and scales to span the space
- * between the anchor and the edge of the viewport
- */
-
-const flyoutBelowScaling = {
-  verticalDefaultPosition: "bottom",
-  verticalPositioningMode: "locktodefault",
-  verticalInset: false,
-  verticalScaling: "fill",
-  horizontalDefaultPosition: "right",
-  horizontalPositioningMode: "locktodefault",
-  horizontalInset: true,
-  horizontalScaling: "anchor"
-};
 
 /**
  * The template for {@link @microsoft/fast-foundation#Avatar} component.
@@ -11546,7 +11454,7 @@ applyMixins(Combobox, StartEnd, DelegatesARIACombobox);
  * @public
  */
 
-const comboboxTemplate = (context, definition) => html`<template autocomplete="${x => x.autocomplete}" class="${x => x.disabled ? "disabled" : ""} ${x => x.position}" tabindex="${x => !x.disabled ? "0" : null}" aria-disabled="${x => x.ariaDisabled}" aria-autocomplete="${x => x.autocomplete}" @click="${(x, c) => x.clickHandler(c.event)}" @focusout="${(x, c) => x.focusoutHandler(c.event)}"><div class="control" part="control">${startTemplate}<slot name="control"><input class="selected-value" part="selected-value" placeholder="${x => x.placeholder}" role="${x => x.role}" type="text" aria-activedescendant="${x => x.open ? x.ariaActiveDescendant : null}" aria-controls="${x => x.listboxId}" aria-expanded="${x => x.ariaExpanded}" aria-haspopup="listbox" ?disabled="${x => x.disabled}" :value="${x => x.value}" @input="${(x, c) => x.inputHandler(c.event)}" @keydown="${(x, c) => x.keydownHandler(c.event)}" @keyup="${(x, c) => x.keyupHandler(c.event)}" ${ref("control")}/><div class="indicator" part="indicator" aria-hidden="true"><slot name="indicator">${definition.indicator || ""}</slot></div></slot>${endTemplate}</div><div aria-disabled="${x => x.disabled}" class="listbox" id="${x => x.listboxId}" part="listbox" role="listbox" style="--max-height:${x => x.maxHeight}px" ?disabled="${x => x.disabled}" ?hidden="${x => !x.open}"><slot ${slotted({
+const comboboxTemplate = (context, definition) => html`<template autocomplete="${x => x.autocomplete}" class="${x => x.disabled ? "disabled" : ""} ${x => x.position}" tabindex="${x => !x.disabled ? "0" : null}" aria-disabled="${x => x.ariaDisabled}" aria-autocomplete="${x => x.autocomplete}" @click="${(x, c) => x.clickHandler(c.event)}" @focusout="${(x, c) => x.focusoutHandler(c.event)}"><div class="control" part="control">${startTemplate}<slot name="control"><input class="selected-value" part="selected-value" placeholder="${x => x.placeholder}" role="${x => x.role}" type="text" aria-activedescendant="${x => x.open ? x.ariaActiveDescendant : null}" aria-controls="${x => x.listboxId}" aria-expanded="${x => x.ariaExpanded}" aria-haspopup="listbox" ?disabled="${x => x.disabled}" :value="${x => x.value}" @input="${(x, c) => x.inputHandler(c.event)}" @keydown="${(x, c) => x.keydownHandler(c.event)}" @keyup="${(x, c) => x.keyupHandler(c.event)}" ${ref("control")} /><div class="indicator" part="indicator" aria-hidden="true"><slot name="indicator">${definition.indicator || ""}</slot></div></slot>${endTemplate}</div><div aria-disabled="${x => x.disabled}" class="listbox" id="${x => x.listboxId}" part="listbox" role="listbox" style="--max-height: ${x => x.maxHeight}px" ?disabled="${x => x.disabled}" ?hidden="${x => !x.open}"><slot ${slotted({
   filter: Listbox.slottedOptionFilter,
   flatten: true,
   property: "slottedOptions"
@@ -11807,7 +11715,7 @@ __decorate([observable], DataGridRow.prototype, "cellElements", void 0);
 
 function createRowItemTemplate(context) {
   const rowTag = context.tagFor(DataGridRow);
-  return html`<${rowTag}:rowData="${x => x}" :cellItemTemplate="${(x, c) => c.parent.cellItemTemplate}" :headerCellItemTemplate="${(x, c) => c.parent.headerCellItemTemplate}"></${rowTag}>`;
+  return html`<${rowTag} :rowData="${x => x}" :cellItemTemplate="${(x, c) => c.parent.cellItemTemplate}" :headerCellItemTemplate="${(x, c) => c.parent.headerCellItemTemplate}"></${rowTag}>`;
 }
 /**
  * Generates a template for the {@link @microsoft/fast-foundation#DataGrid} component using
@@ -12505,12 +12413,12 @@ __decorate([observable], DataGridCell.prototype, "columnDefinition", void 0);
 
 function createCellItemTemplate(context) {
   const cellTag = context.tagFor(DataGridCell);
-  return html`<${cellTag}grid-column="${(x, c) => c.index + 1}" :rowData="${(x, c) => c.parent.rowData}" :columnDefinition="${x => x}"></${cellTag}>`;
+  return html`<${cellTag} grid-column="${(x, c) => c.index + 1}" :rowData="${(x, c) => c.parent.rowData}" :columnDefinition="${x => x}"></${cellTag}>`;
 }
 
 function createHeaderCellItemTemplate(context) {
   const cellTag = context.tagFor(DataGridCell);
-  return html`<${cellTag}cell-type="columnheader" grid-column="${(x, c) => c.index + 1}" :columnDefinition="${x => x}"></${cellTag}>`;
+  return html`<${cellTag} cell-type="columnheader" grid-column="${(x, c) => c.index + 1}" :columnDefinition="${x => x}"></${cellTag}>`;
 }
 /**
  * Generates a template for the {@link @microsoft/fast-foundation#DataGridRow} component using
@@ -12579,7 +12487,7 @@ class CustomPropertyManagerImpl {
 
 
   createElementStyles(token, value) {
-    return css`:host{${token.cssCustomProperty}:${value}}`;
+    return css`:host{${token.cssCustomProperty}:${value};}`;
   }
 
   addTo(element, token, value) {
@@ -13711,7 +13619,7 @@ const listboxTemplate = (context, definition) => html`<template aria-activedesce
 /**
  * A List Picker Menu Custom HTML Element.
  *
- * @public
+ * @alpha
  */
 
 class PickerMenu extends FoundationElement {
@@ -13783,13 +13691,12 @@ const defaultContentsTemplate = html`<template>${x => x.value}</template>`;
 /**
  * A picker list item Custom HTML Element.
  *
- * @public
+ * @alpha
  */
 
 class PickerMenuOption extends FoundationElement {
   constructor() {
     super(...arguments);
-    this.customView = null;
 
     this.handleOptionClick = e => {
       if (e.defaultPrevented) {
@@ -13803,19 +13710,20 @@ class PickerMenuOption extends FoundationElement {
     this.handleOptionInvoked = () => {
       this.$emit("pickeroptioninvoked");
     };
-  } // private isActive: boolean = false;
-  // private isInternalFocused: boolean = false;
+  }
 
+  contentsTemplateChanged() {
+    if (this.$fastController.isConnected) {
+      this.updateView();
+    }
+  }
   /**
    * @internal
    */
 
 
   connectedCallback() {
-    super.connectedCallback(); // this.addEventListener(eventFocusIn, this.handleFocusin);
-    // this.addEventListener(eventFocusOut, this.handleFocusout);
-    // this.addEventListener(eventKeyDown, this.handleKeydown);
-
+    super.connectedCallback();
     this.updateView();
   }
   /**
@@ -13824,52 +13732,20 @@ class PickerMenuOption extends FoundationElement {
 
 
   disconnectedCallback() {
-    super.disconnectedCallback(); // this.removeEventListener(eventFocusIn, this.handleFocusin);
-    // this.removeEventListener(eventFocusOut, this.handleFocusout);
-    // this.removeEventListener(eventKeyDown, this.handleKeydown)
-
+    super.disconnectedCallback();
     this.disconnectView();
-  }
-
-  handleFocusin(e) {// if (this.isActiveCell) {
-    //     return;
-    // }
-    // this.isActiveCell = true;
-    // if (
-    //     this.columnDefinition !== null &&
-    //     this.columnDefinition.cellInternalFocusQueue !== true &&
-    //     typeof this.columnDefinition.cellFocusTargetCallback === "function"
-    // ) {
-    //     // move focus to the focus target
-    //     const focusTarget: HTMLElement = this.columnDefinition.cellFocusTargetCallback(
-    //         this
-    //     );
-    //     if (focusTarget !== null) {
-    //         focusTarget.focus();
-    //     }
-    // }
-    // this.$emit("cell-focused", this);
-  }
-
-  handleFocusout(e) {
-    if (this !== document.activeElement && !this.contains(document.activeElement)) ;
   }
 
   updateView() {
     this.disconnectView();
-
-    if (this.contentsTemplate !== undefined) {
-      this.customView = this.contentsTemplate.render(this, this);
-    } else {
-      this.customView = defaultContentsTemplate.render(this, this);
-    }
+    this.customView = this.contentsTemplate !== undefined ? this.contentsTemplate.render(this, this) : defaultContentsTemplate.render(this, this);
   }
 
   disconnectView() {
-    if (this.customView !== null) {
-      this.customView.dispose();
-      this.customView = null;
-    }
+    var _a;
+
+    (_a = this.customView) === null || _a === void 0 ? void 0 : _a.dispose();
+    this.customView = undefined;
   }
 
 }
@@ -13878,10 +13754,12 @@ __decorate([attr({
   attribute: "value"
 })], PickerMenuOption.prototype, "value", void 0);
 
+__decorate([observable], PickerMenuOption.prototype, "contentsTemplate", void 0);
+
 /**
  * A List Picker Menu Custom HTML Element.
  *
- * @public
+ * @alpha
  */
 
 class PickerList extends FoundationElement {
@@ -13908,20 +13786,19 @@ const defaultContentsTemplate$1 = html`<template>${x => x.value}</template>`;
 /**
  * A picker list item Custom HTML Element.
  *
- * @public
+ * @alpha
  */
 
 class PickerListItem extends FoundationElement {
   constructor() {
     super(...arguments);
-    this.customView = null;
 
     this.handleItemKeyDown = e => {
       if (e.defaultPrevented) {
         return false;
       }
 
-      if (e.key === "Enter") {
+      if (e.key === keyEnter) {
         this.handleItemInvoke();
         return false;
       }
@@ -13930,30 +13807,30 @@ class PickerListItem extends FoundationElement {
     };
 
     this.handleItemClick = e => {
-      if (e.defaultPrevented) {
-        return false;
+      if (!e.defaultPrevented) {
+        this.handleItemInvoke();
       }
 
-      this.handleItemInvoke();
       return false;
     };
 
     this.handleItemInvoke = () => {
       this.$emit("pickeriteminvoked");
     };
-  } // private isActive: boolean = false;
-  // private isInternalFocused: boolean = false;
+  }
 
+  contentsTemplateChanged() {
+    if (this.$fastController.isConnected) {
+      this.updateView();
+    }
+  }
   /**
    * @internal
    */
 
 
   connectedCallback() {
-    super.connectedCallback(); // this.addEventListener(eventFocusIn, this.handleFocusin);
-    // this.addEventListener(eventFocusOut, this.handleFocusout);
-    // this.addEventListener(eventKeyDown, this.handleKeydown);
-
+    super.connectedCallback();
     this.updateView();
   }
   /**
@@ -13962,52 +13839,20 @@ class PickerListItem extends FoundationElement {
 
 
   disconnectedCallback() {
-    super.disconnectedCallback(); // this.removeEventListener(eventFocusIn, this.handleFocusin);
-    // this.removeEventListener(eventFocusOut, this.handleFocusout);
-    // this.removeEventListener(eventKeyDown, this.handleKeydown)
-
     this.disconnectView();
-  }
-
-  handleFocusin(e) {// if (this.isActiveCell) {
-    //     return;
-    // }
-    // this.isActiveCell = true;
-    // if (
-    //     this.columnDefinition !== null &&
-    //     this.columnDefinition.cellInternalFocusQueue !== true &&
-    //     typeof this.columnDefinition.cellFocusTargetCallback === "function"
-    // ) {
-    //     // move focus to the focus target
-    //     const focusTarget: HTMLElement = this.columnDefinition.cellFocusTargetCallback(
-    //         this
-    //     );
-    //     if (focusTarget !== null) {
-    //         focusTarget.focus();
-    //     }
-    // }
-    // this.$emit("cell-focused", this);
-  }
-
-  handleFocusout(e) {
-    if (this !== document.activeElement && !this.contains(document.activeElement)) ;
+    super.disconnectedCallback();
   }
 
   updateView() {
     this.disconnectView();
-
-    if (this.contentsTemplate !== undefined) {
-      this.customView = this.contentsTemplate.render(this, this);
-    } else {
-      this.customView = defaultContentsTemplate$1.render(this, this);
-    }
+    this.customView = this.contentsTemplate !== undefined ? this.contentsTemplate.render(this, this) : defaultContentsTemplate$1.render(this, this);
   }
 
   disconnectView() {
-    if (this.customView !== null) {
-      this.customView.dispose();
-      this.customView = null;
-    }
+    var _a;
+
+    (_a = this.customView) === null || _a === void 0 ? void 0 : _a.dispose();
+    this.customView = undefined;
   }
 
 }
@@ -14020,12 +13865,12 @@ __decorate([observable], PickerListItem.prototype, "contentsTemplate", void 0);
 
 function createDefaultListItemTemplate(context) {
   const pickerListItemTag = context.tagFor(PickerListItem);
-  return html`<${pickerListItemTag}value="${x => x}" :contentsTemplate="${(x, c) => c.parent.listItemContentsTemplate}"></${pickerListItemTag}>`;
+  return html`<${pickerListItemTag} value="${x => x}" :contentsTemplate="${(x, c) => c.parent.listItemContentsTemplate}"></${pickerListItemTag}>`;
 }
 
 function createDefaultMenuOptionTemplate(context) {
   const pickerMenuOptionTag = context.tagFor(PickerMenuOption);
-  return html`<${pickerMenuOptionTag}value="${x => x}" :contentsTemplate="${(x, c) => c.parent.menuOptionContentsTemplate}"></${pickerMenuOptionTag}>`;
+  return html`<${pickerMenuOptionTag} value="${x => x}" :contentsTemplate="${(x, c) => c.parent.menuOptionContentsTemplate}"></${pickerMenuOptionTag}>`;
 }
 /**
  * The template for the List Picker component.
@@ -14039,31 +13884,66 @@ const pickerTemplate = (context, definition) => {
   const pickerListtag = context.tagFor(PickerList);
   const defaultListItemTemplate = createDefaultListItemTemplate(context);
   const defaultMenuOptionTemplate = createDefaultMenuOptionTemplate(context);
-  return html`<template :selectedlisttag="${() => pickerListtag}" :pickermenutag="${() => pickerMenutag}" :defaultListItemTemplate="${defaultListItemTemplate}" :defaultMenuOptionTemplate="${defaultMenuOptionTemplate}" @focusin="${(x, c) => x.handleFocusIn(c.event)}" @focusout="${(x, c) => x.handleFocusOut(c.event)}" @keydown="${(x, c) => x.handleKeyDown(c.event)}" @pickeriteminvoked="${(x, c) => x.handleItemInvoke(c.event)}" @pickeroptioninvoked="${(x, c) => x.handleOptionInvoke(c.event)}"><slot name="list-region"></slot>${when(x => x.flyoutOpen, html`<${anchoredRegionTag}class="region" auto-update-mode="${x => x.menuConfig.autoUpdateMode !== undefined ? x.menuConfig.autoUpdateMode : "auto"}" fixed-placement="${x => x.menuConfig.fixedPlacement !== undefined ? x.menuConfig.fixedPlacement : true}" vertical-positioning-mode="${x => x.menuConfig.verticalPositioningMode}" vertical-default-position="${x => x.menuConfig.verticalDefaultPosition}" vertical-scaling="${x => x.menuConfig.verticalScaling}" vertical-inset="${x => x.menuConfig.verticalInset}" vertical-threshold="${x => x.menuConfig.verticalThreshold}" horizontal-positioning-mode="${x => x.menuConfig.horizontalPositioningMode}" horizontal-default-position="${x => x.menuConfig.horizontalDefaultPosition}" horizontal-scaling="${x => x.menuConfig.horizontalScaling}" horizontal-inset="${x => x.menuConfig.horizontalInset}" horizontal-threshold="${x => x.menuConfig.horizontalThreshold}" @loaded="${(x, c) => x.handleRegionLoaded(c.event)}" ${ref("region")}>${when(x => !x.showNoOptions && !x.showLoading, html`<slot name="menu-region"></slot>`)} ${when(x => x.showNoOptions && !x.showLoading, html`<div class="no-options-display" part="no-options-display"><slot name="no-options-region">${x => x.noSuggestionsText}</slot></div>`)} ${when(x => x.showLoading, html`<div class="loading-display" part="loading-display"><slot name="loading-region"><fast-progress-ring part="loading-progress" class="loading-progress slot="loading-region"></fast-progress-ring>${x => x.loadingText}</slot></div>`)}</${anchoredRegionTag}>`)}</template>`;
+  return html`<template :selectedListTag="${() => pickerListtag}" :pickerMenuTag="${() => pickerMenutag}" :defaultListItemTemplate="${defaultListItemTemplate}" :defaultMenuOptionTemplate="${defaultMenuOptionTemplate}" @focusin="${(x, c) => x.handleFocusIn(c.event)}" @focusout="${(x, c) => x.handleFocusOut(c.event)}" @keydown="${(x, c) => x.handleKeyDown(c.event)}" @pickeriteminvoked="${(x, c) => x.handleItemInvoke(c.event)}" @pickeroptioninvoked="${(x, c) => x.handleOptionInvoke(c.event)}"><slot name="list-region"></slot>${when(x => x.flyoutOpen, html`<${anchoredRegionTag} class="region" auto-update-mode="auto" fixed-placement="true" vertical-positioning-mode="locktodefault" vertical-default-position="bottom" vertical-scaling="content" vertical-inset="false" horizontal-positioning-mode="locktodefault" horizontal-default-position="right" horizontal-scaling="anchor" horizontal-inset="true" @loaded="${(x, c) => x.handleRegionLoaded(c.event)}" ${ref("region")}>${when(x => !x.showNoOptions && !x.showLoading, html`<slot name="menu-region"></slot>`)} ${when(x => x.showNoOptions && !x.showLoading, html`<div class="no-options-display" part="no-options-display"><slot name="no-options-region">${x => x.noSuggestionsText}</slot></div>`)} ${when(x => x.showLoading, html`<div class="loading-display" part="loading-display"><slot name="loading-region"><fast-progress-ring part="loading-progress" class="loading-progress slot="loading-region"></fast-progress-ring>${x => x.loadingText}</slot></div>`)}</${anchoredRegionTag}>`)}</template>`;
 };
 
+class _Picker extends FoundationElement {}
 /**
- * A List Picker Custom HTML Element.
+ * A form-associated base class for the {@link @microsoft/fast-foundation#(Picker:class)} component.
  *
- * @public
+ * @internal
  */
 
-class Picker extends FoundationElement {
+
+class FormAssociatedPicker extends FormAssociated(_Picker) {
+  constructor() {
+    super(...arguments);
+    this.proxy = document.createElement("input");
+  }
+
+}
+
+/**
+ * A Picker Custom HTML Element.  This is an early "alpha" version of the component.
+ * Developers should expect the api to evolve, breaking changes are possible.
+ *
+ * @alpha
+ */
+
+class Picker extends FormAssociatedPicker {
   constructor() {
     super(...arguments);
     /**
      * Currently selected items. Comma delineated string ie. "apples,oranges".
      *
-     * @public
+     * @alpha
      * @remarks
      * HTML Attribute: selection
      */
 
     this.selection = "";
     /**
+     * Whether the component should remove an option from the list when it is in the selection
+     *
+     * @alpha
+     * @remarks
+     * HTML Attribute: filter-selected
+     */
+
+    this.filterSelected = true;
+    /**
+     * Whether the component should remove options based on the current query
+     *
+     * @alpha
+     * @remarks
+     * HTML Attribute: filter-query
+     */
+
+    this.filterQuery = true;
+    /**
      * The text to present to assistive technolgies when no suggestions are available.
      *
-     * @public
+     * @alpha
      * @remarks
      * HTML Attribute: no-suggestions-text
      */
@@ -14072,7 +13952,7 @@ class Picker extends FoundationElement {
     /**
      *  The text to present to assistive technolgies when suggestions are available.
      *
-     * @public
+     * @alpha
      * @remarks
      * HTML Attribute: suggestions-available-text
      */
@@ -14081,7 +13961,7 @@ class Picker extends FoundationElement {
     /**
      * The text to present to assistive technologies when suggestions are loading.
      *
-     * @public
+     * @alpha
      * @remarks
      * HTML Attribute: loading-text
      */
@@ -14090,19 +13970,24 @@ class Picker extends FoundationElement {
     /**
      * Whether to display a loading state if the menu is opened.
      *
-     * @public
-     * @remarks
-     * HTML Attribute: showloading
+     * @alpha
      */
 
     this.showLoading = false;
     /**
      *  Current list of options in array form
      *
-     * @public
+     * @alpha
      */
 
     this.optionsList = [];
+    /**
+     *  Current list of filtered options in array form
+     *
+     * @internal
+     */
+
+    this.filteredOptionsList = [];
     /**
      *  Indicates if the flyout menu is open or not
      *
@@ -14131,7 +14016,6 @@ class Picker extends FoundationElement {
      */
 
     this.selectedItems = [];
-    this.hasFocus = false;
     /**
      * Handle input event from input element
      */
@@ -14146,6 +14030,7 @@ class Picker extends FoundationElement {
 
     this.handleInputClick = e => {
       e.preventDefault();
+      this.toggleFlyout(true);
     };
     /**
      * Handle the menu options updated event from the child menu
@@ -14170,20 +14055,30 @@ class Picker extends FoundationElement {
       }
 
       switch (e.key) {
-        case "Home":
-          {
-            if (!this.flyoutOpen) {
-              this.toggleFlyout(true);
-            } else {
-              if (this.menuElement.optionElements.length > 0) {
-                this.setFocusedOption(0);
-              }
-            }
-
-            return false;
-          }
-
-        case "ArrowDown":
+        // TODO: what should "home" and "end" keys do, exactly?
+        //
+        // case keyHome: {
+        //     if (!this.flyoutOpen) {
+        //         this.toggleFlyout(true);
+        //     } else {
+        //         if (this.menuElement.optionElements.length > 0) {
+        //             this.setFocusedOption(0);
+        //         }
+        //     }
+        //     return false;
+        // }
+        // case keyEnd: {
+        //     if (!this.flyoutOpen) {
+        //         this.toggleFlyout(true);
+        //     } else {
+        //         if (this.menuElement.optionElements.length > 0) {
+        //             this.toggleFlyout(true);
+        //             this.setFocusedOption(this.menuElement.optionElements.length - 1);
+        //         }
+        //     }
+        //     return false;
+        // }
+        case keyArrowDown:
           {
             if (!this.flyoutOpen) {
               this.toggleFlyout(true);
@@ -14195,7 +14090,7 @@ class Picker extends FoundationElement {
             return false;
           }
 
-        case "ArrowUp":
+        case keyArrowUp:
           {
             if (!this.flyoutOpen) {
               this.toggleFlyout(true);
@@ -14207,27 +14102,13 @@ class Picker extends FoundationElement {
             return false;
           }
 
-        case "End":
-          {
-            if (!this.flyoutOpen) {
-              this.toggleFlyout(true);
-            } else {
-              if (this.menuElement.optionElements.length > 0) {
-                this.toggleFlyout(true);
-                this.setFocusedOption(this.menuElement.optionElements.length - 1);
-              }
-            }
-
-            return false;
-          }
-
-        case "Escape":
+        case keyEscape:
           {
             this.toggleFlyout(false);
             return false;
           }
 
-        case "Enter":
+        case keyEnter:
           {
             if (this.menuFocusIndex !== -1 && this.menuElement.optionElements.length > this.menuFocusIndex) {
               this.menuElement.optionElements[this.menuFocusIndex].click();
@@ -14236,7 +14117,7 @@ class Picker extends FoundationElement {
             return false;
           }
 
-        case "ArrowRight":
+        case keyArrowRight:
           {
             if (document.activeElement !== this.listElement.inputElement) {
               this.incrementFocusedItem(1);
@@ -14247,7 +14128,7 @@ class Picker extends FoundationElement {
             return true;
           }
 
-        case "ArrowLeft":
+        case keyArrowLeft:
           {
             if (this.listElement.inputElement.selectionStart === 0) {
               this.incrementFocusedItem(-1);
@@ -14258,8 +14139,8 @@ class Picker extends FoundationElement {
             return true;
           }
 
-        case "Delete":
-        case "Backspace":
+        case keyDelete:
+        case keyBack:
           {
             if (document.activeElement === null) {
               return true;
@@ -14301,10 +14182,6 @@ class Picker extends FoundationElement {
 
 
     this.handleFocusIn = e => {
-      if (!this.hasFocus) {
-        this.hasFocus = true;
-      }
-
       return false;
     };
     /**
@@ -14315,10 +14192,6 @@ class Picker extends FoundationElement {
     this.handleFocusOut = e => {
       if (this.menuElement === undefined || !this.menuElement.contains(e.relatedTarget)) {
         this.toggleFlyout(false);
-      }
-
-      if (!this.contains(document.activeElement)) {
-        this.hasFocus = false;
       }
 
       return false;
@@ -14352,7 +14225,6 @@ class Picker extends FoundationElement {
         return;
       }
 
-      this.region.viewportElement = document.body;
       this.region.anchorElement = this.listElement.inputElement;
     };
     /**
@@ -14417,9 +14289,9 @@ class Picker extends FoundationElement {
         this.toggleFlyout(false);
         this.listElement.inputElement.value = "";
         return false;
-      }
+      } // const value: string = (e.target as PickerMenuOption).value;
 
-      e.target.value;
+
       return true;
     };
     /**
@@ -14473,22 +14345,31 @@ class Picker extends FoundationElement {
   selectionChanged() {
     if (this.$fastController.isConnected) {
       this.handleSelectionChange();
+
+      if (this.proxy instanceof HTMLInputElement) {
+        this.proxy.value = this.selection;
+        this.validate();
+      }
     }
   }
 
   optionsChanged() {
-    this.optionsList = this.options.split(",");
+    this.optionsList = this.options.split(",").map(opt => opt.trim()).filter(opt => opt !== "");
   }
 
   labelChanged() {
-    if (this.$fastController.isConnected && this.listElement !== undefined) {
-      this.listElement.setAttribute("label", this.label);
+    var _a;
+
+    if (this.$fastController.isConnected) {
+      (_a = this.listElement) === null || _a === void 0 ? void 0 : _a.setAttribute("label", this.label);
     }
   }
 
   labelledbyChanged() {
-    if (this.$fastController.isConnected && this.listElement !== undefined) {
-      this.listElement.setAttribute("labelledby", this.labelledby);
+    var _a;
+
+    if (this.$fastController.isConnected) {
+      (_a = this.listElement) === null || _a === void 0 ? void 0 : _a.setAttribute("labelledby", this.labelledBy);
     }
   }
 
@@ -14497,12 +14378,6 @@ class Picker extends FoundationElement {
       DOM.queueUpdate(() => {
         this.setFocusedOption(0);
       });
-    }
-  }
-
-  menuConfigChanged() {
-    if (this.$fastController.isConnected && !this.menuConfig) {
-      this.menuConfig = flyoutBelowScaling;
     }
   }
 
@@ -14523,10 +14398,7 @@ class Picker extends FoundationElement {
   }
 
   optionsListChanged() {
-    if (this.$fastController.isConnected) {
-      this.showNoOptions = this.optionsList.length === 0 ? true : false;
-      this.setFocusedOption(this.optionsList.length === 0 ? -1 : 0);
-    }
+    this.updateFilteredOptions();
   }
 
   queryChanged() {
@@ -14535,9 +14407,17 @@ class Picker extends FoundationElement {
         this.listElement.inputElement.value = this.query;
       }
 
+      this.updateFilteredOptions();
       this.$emit("querychange", {
         bubbles: false
       });
+    }
+  }
+
+  filteredOptionsListChanged() {
+    if (this.$fastController.isConnected) {
+      this.showNoOptions = this.filteredOptionsList.length === 0;
+      this.setFocusedOption(this.filteredOptionsList.length === 0 ? -1 : 0);
     }
   }
 
@@ -14568,26 +14448,17 @@ class Picker extends FoundationElement {
 
   connectedCallback() {
     super.connectedCallback();
-
-    if (this.menuConfig === undefined) {
-      this.menuConfig = flyoutBelowScaling;
-    }
-
-    if (this.options !== undefined) {
-      this.optionsList = this.options.split(",");
-    }
-
-    this.listElement = document.createElement(this.selectedlisttag);
+    this.listElement = document.createElement(this.selectedListTag);
     this.listElement.label = this.label;
-    this.listElement.labelledby = this.labelledby;
+    this.listElement.labelledby = this.labelledBy;
     this.appendChild(this.listElement);
-    const match = this.pickermenutag.toUpperCase();
+    const match = this.pickerMenuTag.toUpperCase();
     this.menuElement = Array.from(this.children).find(element => {
       return element.tagName === match;
     });
 
     if (this.menuElement === undefined) {
-      this.menuElement = document.createElement(this.pickermenutag);
+      this.menuElement = document.createElement(this.pickerMenuTag);
       this.appendChild(this.menuElement);
     }
 
@@ -14608,6 +14479,17 @@ class Picker extends FoundationElement {
     this.listElement.inputElement.removeEventListener("click", this.handleInputClick);
   }
   /**
+   * Move focus to the input element
+   * @public
+   */
+
+
+  focus() {
+    var _a;
+
+    (_a = this.listElement) === null || _a === void 0 ? void 0 : _a.inputElement.focus();
+  }
+  /**
    * Initialize the component.  This is delayed a frame to ensure children are connected as well.
    */
 
@@ -14623,7 +14505,7 @@ class Picker extends FoundationElement {
     this.$fastController.addBehaviors([this.itemsRepeatBehavior]);
     this.menuElement.suggestionsAvailableText = this.suggestionsAvailableText;
     this.menuElement.addEventListener("optionsupdated", this.handleMenuOptionsUpdated);
-    this.optionsRepeatBehavior = new RepeatDirective(x => x.optionsList, x => x.activeMenuOptionTemplate, {
+    this.optionsRepeatBehavior = new RepeatDirective(x => x.filteredOptionsList, x => x.activeMenuOptionTemplate, {
       positioning: true
     }).createBehavior(this.optionsPlaceholder);
     this.$fastController.addBehaviors([this.optionsRepeatBehavior]);
@@ -14656,7 +14538,7 @@ class Picker extends FoundationElement {
     return;
   }
   /**
-   * Sets properties on the anchored region once it is instanciated.
+   * The list of selected items has changed
    */
 
 
@@ -14666,6 +14548,7 @@ class Picker extends FoundationElement {
     }
 
     this.selectedItems = this.selection === "" ? [] : this.selection.split(",");
+    this.updateFilteredOptions();
     DOM.queueUpdate(() => {
       this.checkMaxItems();
     });
@@ -14679,31 +14562,31 @@ class Picker extends FoundationElement {
 
 
   incrementFocusedItem(increment) {
-    const selectedItems = Array.from(this.listElement.querySelectorAll("[role='listitem']"));
-
-    if (selectedItems.length === 0) {
+    if (this.selectedItems.length === 0) {
       this.listElement.inputElement.focus();
       return;
     }
 
+    const selectedItemsAsElements = Array.from(this.listElement.querySelectorAll("[role='listitem']"));
+
     if (document.activeElement !== null) {
-      let currentFocusedItemIndex = selectedItems.indexOf(document.activeElement);
+      let currentFocusedItemIndex = selectedItemsAsElements.indexOf(document.activeElement);
 
       if (currentFocusedItemIndex === -1) {
         // use the input element
-        currentFocusedItemIndex = selectedItems.length;
+        currentFocusedItemIndex = selectedItemsAsElements.length;
       }
 
-      const newFocusedItemIndex = Math.min(selectedItems.length, Math.max(0, currentFocusedItemIndex + increment));
+      const newFocusedItemIndex = Math.min(selectedItemsAsElements.length, Math.max(0, currentFocusedItemIndex + increment));
 
-      if (newFocusedItemIndex === selectedItems.length) {
+      if (newFocusedItemIndex === selectedItemsAsElements.length) {
         if (this.maxSelected !== undefined && this.selectedItems.length >= this.maxSelected) {
-          selectedItems[newFocusedItemIndex - 1].focus();
+          selectedItemsAsElements[newFocusedItemIndex - 1].focus();
         } else {
           this.listElement.inputElement.focus();
         }
       } else {
-        selectedItems[newFocusedItemIndex].focus();
+        selectedItemsAsElements[newFocusedItemIndex].focus();
       }
     }
   }
@@ -14713,7 +14596,9 @@ class Picker extends FoundationElement {
 
 
   updateListItemTemplate() {
-    this.activeListItemTemplate = this.listItemTemplate === undefined ? this.defaultListItemTemplate : this.listItemTemplate;
+    var _a;
+
+    this.activeListItemTemplate = (_a = this.listItemTemplate) !== null && _a !== void 0 ? _a : this.defaultListItemTemplate;
   }
   /**
    * Updates the template used for the menu option repeat behavior
@@ -14721,7 +14606,25 @@ class Picker extends FoundationElement {
 
 
   updateOptionTemplate() {
-    this.activeMenuOptionTemplate = this.menuOptionTemplate === undefined ? this.defaultMenuOptionTemplate : this.menuOptionTemplate;
+    var _a;
+
+    this.activeMenuOptionTemplate = (_a = this.menuOptionTemplate) !== null && _a !== void 0 ? _a : this.defaultMenuOptionTemplate;
+  }
+  /**
+   * Updates the filtered options array
+   */
+
+
+  updateFilteredOptions() {
+    this.filteredOptionsList = this.optionsList.slice(0);
+
+    if (this.filterSelected) {
+      this.filteredOptionsList = this.filteredOptionsList.filter(el => this.selectedItems.indexOf(el) === -1);
+    }
+
+    if (this.filterQuery && this.query !== "" && this.query !== undefined) {
+      this.filteredOptionsList = this.filteredOptionsList.filter(el => el.indexOf(this.query) !== -1);
+    }
   }
 
 }
@@ -14733,6 +14636,16 @@ __decorate([attr({
 __decorate([attr({
   attribute: "options"
 })], Picker.prototype, "options", void 0);
+
+__decorate([attr({
+  attribute: "filter-selected",
+  mode: "boolean"
+})], Picker.prototype, "filterSelected", void 0);
+
+__decorate([attr({
+  attribute: "filter-query",
+  mode: "boolean"
+})], Picker.prototype, "filterQuery", void 0);
 
 __decorate([attr({
   attribute: "max-selected"
@@ -14756,13 +14669,9 @@ __decorate([attr({
 
 __decorate([attr({
   attribute: "labelledby"
-})], Picker.prototype, "labelledby", void 0);
+})], Picker.prototype, "labelledBy", void 0);
 
-__decorate([attr({
-  attribute: "showloading"
-})], Picker.prototype, "showLoading", void 0);
-
-__decorate([observable], Picker.prototype, "menuConfig", void 0);
+__decorate([observable], Picker.prototype, "showLoading", void 0);
 
 __decorate([observable], Picker.prototype, "listItemTemplate", void 0);
 
@@ -14784,13 +14693,15 @@ __decorate([observable], Picker.prototype, "optionsList", void 0);
 
 __decorate([observable], Picker.prototype, "query", void 0);
 
+__decorate([observable], Picker.prototype, "filteredOptionsList", void 0);
+
 __decorate([observable], Picker.prototype, "flyoutOpen", void 0);
 
 __decorate([observable], Picker.prototype, "menuId", void 0);
 
-__decorate([observable], Picker.prototype, "selectedlisttag", void 0);
+__decorate([observable], Picker.prototype, "selectedListTag", void 0);
 
-__decorate([observable], Picker.prototype, "pickermenutag", void 0);
+__decorate([observable], Picker.prototype, "pickerMenuTag", void 0);
 
 __decorate([observable], Picker.prototype, "menuFocusIndex", void 0);
 
@@ -15113,14 +15024,16 @@ __decorate([attr({
 })], MenuItem.prototype, "disabled", void 0);
 
 __decorate([attr({
-  attribute: "expanded"
+  mode: "boolean"
 })], MenuItem.prototype, "expanded", void 0);
 
 __decorate([observable], MenuItem.prototype, "startColumnCount", void 0);
 
 __decorate([attr], MenuItem.prototype, "role", void 0);
 
-__decorate([attr], MenuItem.prototype, "checked", void 0);
+__decorate([attr({
+  mode: "boolean"
+})], MenuItem.prototype, "checked", void 0);
 
 __decorate([observable], MenuItem.prototype, "submenuRegion", void 0);
 
@@ -15139,14 +15052,14 @@ applyMixins(MenuItem, StartEnd);
  * @public
  */
 
-const menuItemTemplate = (context, definition) => html`<template role="${x => x.role}" aria-haspopup="${x => x.hasSubmenu ? "menu" : void 0}" aria-checked="${x => x.role !== MenuItemRole.menuitem ? x.checked : void 0}" aria-disabled="${x => x.disabled}" aria-expanded="${x => x.expanded}" @keydown="${(x, c) => x.handleMenuItemKeyDown(c.event)}" @click="${(x, c) => x.handleMenuItemClick(c.event)}" @mouseover="${(x, c) => x.handleMouseOver(c.event)}" @mouseout="${(x, c) => x.handleMouseOut(c.event)}" class="${x => x.disabled ? "disabled" : ""} ${x => x.expanded ? "expanded" : ""} ${x => `indent-${x.startColumnCount}`}">${when(x => x.role === MenuItemRole.menuitemcheckbox, html`<div part="input-container" class="input-container"><span part="checkbox" class="checkbox"><slot name="checkbox-indicator">${definition.checkboxIndicator || ""}</slot></span></div>`)} ${when(x => x.role === MenuItemRole.menuitemradio, html`<div part="input-container" class="input-container"><span part="radio" class="radio"><slot name="radio-indicator">${definition.radioIndicator || ""}</slot></span></div>`)}</div>${startTemplate}<span class="content" part="content"><slot></slot></span>${endTemplate} ${when(x => x.hasSubmenu, html`<div part="expand-collapse-glyph-container" class="expand-collapse-glyph-container"><span part="expand-collapse" class="expand-collapse"><slot name="expand-collapse-indicator">${definition.expandCollapseGlyph || ""}</slot></span></div>`)} ${when(x => x.expanded, html`<${context.tagFor(AnchoredRegion)}:anchorElement="${x => x}" vertical-positioning-mode="dynamic" vertical-default-position="bottom" vertical-inset="true" horizontal-positioning-mode="dynamic" horizontal-default-position="end" class="submenu-region" dir="${x => x.currentDirection}" @loaded="${x => x.submenuLoaded()}" ${ref("submenuRegion")}part="submenu-region"><slot name="submenu"></slot></${context.tagFor(AnchoredRegion)}>`)}</template>`;
+const menuItemTemplate = (context, definition) => html`<template role="${x => x.role}" aria-haspopup="${x => x.hasSubmenu ? "menu" : void 0}" aria-checked="${x => x.role !== MenuItemRole.menuitem ? x.checked : void 0}" aria-disabled="${x => x.disabled}" aria-expanded="${x => x.expanded}" @keydown="${(x, c) => x.handleMenuItemKeyDown(c.event)}" @click="${(x, c) => x.handleMenuItemClick(c.event)}" @mouseover="${(x, c) => x.handleMouseOver(c.event)}" @mouseout="${(x, c) => x.handleMouseOut(c.event)}" class="${x => x.disabled ? "disabled" : ""} ${x => x.expanded ? "expanded" : ""} ${x => `indent-${x.startColumnCount}`}">${when(x => x.role === MenuItemRole.menuitemcheckbox, html`<div part="input-container" class="input-container"><span part="checkbox" class="checkbox"><slot name="checkbox-indicator">${definition.checkboxIndicator || ""}</slot></span></div>`)} ${when(x => x.role === MenuItemRole.menuitemradio, html`<div part="input-container" class="input-container"><span part="radio" class="radio"><slot name="radio-indicator">${definition.radioIndicator || ""}</slot></span></div>`)}</div>${startTemplate}<span class="content" part="content"><slot></slot></span>${endTemplate} ${when(x => x.hasSubmenu, html`<div part="expand-collapse-glyph-container" class="expand-collapse-glyph-container"><span part="expand-collapse" class="expand-collapse"><slot name="expand-collapse-indicator">${definition.expandCollapseGlyph || ""}</slot></span></div>`)} ${when(x => x.expanded, html`<${context.tagFor(AnchoredRegion)} :anchorElement="${x => x}" vertical-positioning-mode="dynamic" vertical-default-position="bottom" vertical-inset="true" horizontal-positioning-mode="dynamic" horizontal-default-position="end" class="submenu-region" dir="${x => x.currentDirection}" @loaded="${x => x.submenuLoaded()}" ${ref("submenuRegion")} part="submenu-region"><slot name="submenu"></slot></${context.tagFor(AnchoredRegion)}>`)}</template>`;
 
 /**
  * The template for the {@link @microsoft/fast-foundation#Menu} component.
  * @public
  */
 
-const menuTemplate = (context, definition) => html`<template slot="${x => x.isNestedMenu() ? "submenu" : void 0}" role="menu" @keydown="${(x, c) => x.handleMenuKeyDown(c.event)}" @focusout="${(x, c) => x.handleFocusOut(c.event)}"><slot ${slotted("items")}></slot></template>`;
+const menuTemplate = (context, definition) => html`<template slot="${x => x.slot ? x.slot : x.isNestedMenu() ? "submenu" : void 0}" role="menu" @keydown="${(x, c) => x.handleMenuKeyDown(c.event)}" @focusout="${(x, c) => x.handleFocusOut(c.event)}"><slot ${slotted("items")}></slot></template>`;
 
 /**
  * A Menu Custom HTML Element.
@@ -15466,17 +15379,17 @@ __decorate([observable], Menu.prototype, "items", void 0);
  * @public
  */
 
-const numberFieldTemplate = (context, definition) => html`<template class="${x => x.readOnly ? "readonly" : ""}"><label part="label" for="control" class="${x => x.defaultSlottedNodes && x.defaultSlottedNodes.length ? "label" : "label label__hidden"}"><slot ${slotted("defaultSlottedNodes")}></slot></label><div class="root" part="root">${startTemplate}<input class="control" part="control" id="control" @input="${x => x.handleTextInput()}" @change="${x => x.handleChange()}" ?autofocus="${x => x.autofocus}" ?disabled="${x => x.disabled}" list="${x => x.list}" maxlength="${x => x.maxlength}" minlength="${x => x.minlength}" placeholder="${x => x.placeholder}" ?readonly="${x => x.readOnly}" ?required="${x => x.required}" size="${x => x.size}" :value="${x => x.value}" type="text" inputmode="numeric" min="${x => x.min}" max="${x => x.max}" step="${x => x.step}" aria-atomic="${x => x.ariaAtomic}" aria-busy="${x => x.ariaBusy}" aria-controls="${x => x.ariaControls}" aria-current="${x => x.ariaCurrent}" aria-describedBy="${x => x.ariaDescribedby}" aria-details="${x => x.ariaDetails}" aria-disabled="${x => x.ariaDisabled}" aria-errormessage="${x => x.ariaErrormessage}" aria-flowto="${x => x.ariaFlowto}" aria-haspopup="${x => x.ariaHaspopup}" aria-hidden="${x => x.ariaHidden}" aria-invalid="${x => x.ariaInvalid}" aria-keyshortcuts="${x => x.ariaKeyshortcuts}" aria-label="${x => x.ariaLabel}" aria-labelledby="${x => x.ariaLabelledby}" aria-live="${x => x.ariaLive}" aria-owns="${x => x.ariaOwns}" aria-relevant="${x => x.ariaRelevant}" aria-roledescription="${x => x.ariaRoledescription}" ${ref("control")}/>${when(x => !x.hideStep, html`<div class="controls" part="controls"><div class="step-up" part="step-up" @click="${x => x.stepUp()}"><slot name="step-up-glyph">${definition.stepUpGlyph || ""}</slot></div><div class="step-down" part="step-down" @click="${x => x.stepDown()}"><slot name="step-down-glyph">${definition.stepDownGlyph || ""}</slot></div></div>`)} ${endTemplate}</div></template>`;
+const numberFieldTemplate = (context, definition) => html`<template class="${x => x.readOnly ? "readonly" : ""}"><label part="label" for="control" class="${x => x.defaultSlottedNodes && x.defaultSlottedNodes.length ? "label" : "label label__hidden"}"><slot ${slotted("defaultSlottedNodes")}></slot></label><div class="root" part="root">${startTemplate}<input class="control" part="control" id="control" @input="${x => x.handleTextInput()}" @change="${x => x.handleChange()}" ?autofocus="${x => x.autofocus}" ?disabled="${x => x.disabled}" list="${x => x.list}" maxlength="${x => x.maxlength}" minlength="${x => x.minlength}" placeholder="${x => x.placeholder}" ?readonly="${x => x.readOnly}" ?required="${x => x.required}" size="${x => x.size}" :value="${x => x.value}" type="text" inputmode="numeric" min="${x => x.min}" max="${x => x.max}" step="${x => x.step}" aria-atomic="${x => x.ariaAtomic}" aria-busy="${x => x.ariaBusy}" aria-controls="${x => x.ariaControls}" aria-current="${x => x.ariaCurrent}" aria-describedBy="${x => x.ariaDescribedby}" aria-details="${x => x.ariaDetails}" aria-disabled="${x => x.ariaDisabled}" aria-errormessage="${x => x.ariaErrormessage}" aria-flowto="${x => x.ariaFlowto}" aria-haspopup="${x => x.ariaHaspopup}" aria-hidden="${x => x.ariaHidden}" aria-invalid="${x => x.ariaInvalid}" aria-keyshortcuts="${x => x.ariaKeyshortcuts}" aria-label="${x => x.ariaLabel}" aria-labelledby="${x => x.ariaLabelledby}" aria-live="${x => x.ariaLive}" aria-owns="${x => x.ariaOwns}" aria-relevant="${x => x.ariaRelevant}" aria-roledescription="${x => x.ariaRoledescription}" ${ref("control")} />${when(x => !x.hideStep && !x.readOnly && !x.disabled, html`<div class="controls" part="controls"><div class="step-up" part="step-up" @click="${x => x.stepUp()}"><slot name="step-up-glyph">${definition.stepUpGlyph || ""}</slot></div><div class="step-down" part="step-down" @click="${x => x.stepDown()}"><slot name="step-down-glyph">${definition.stepDownGlyph || ""}</slot></div></div>`)} ${endTemplate}</div></template>`;
 
 /**
  * The template for the {@link @microsoft/fast-foundation#(TextField:class)} component.
  * @public
  */
 
-const textFieldTemplate = (context, definition) => html`<template class=" ${x => x.readOnly ? "readonly" : ""}"><label part="label" for="control" class="${x => x.defaultSlottedNodes && x.defaultSlottedNodes.length ? "label" : "label label__hidden"}"><slot ${slotted({
+const textFieldTemplate = (context, definition) => html`<template class=" ${x => x.readOnly ? "readonly" : ""} "><label part="label" for="control" class="${x => x.defaultSlottedNodes && x.defaultSlottedNodes.length ? "label" : "label label__hidden"}"><slot ${slotted({
   property: "defaultSlottedNodes",
   filter: whitespaceFilter
-})}></slot></label><div class="root" part="root">${startTemplate}<input class="control" part="control" id="control" @input="${x => x.handleTextInput()}" @change="${x => x.handleChange()}" ?autofocus="${x => x.autofocus}" ?disabled="${x => x.disabled}" list="${x => x.list}" maxlength="${x => x.maxlength}" minlength="${x => x.minlength}" pattern="${x => x.pattern}" placeholder="${x => x.placeholder}" ?readonly="${x => x.readOnly}" ?required="${x => x.required}" size="${x => x.size}" ?spellcheck="${x => x.spellcheck}" :value="${x => x.value}" type="${x => x.type}" aria-atomic="${x => x.ariaAtomic}" aria-busy="${x => x.ariaBusy}" aria-controls="${x => x.ariaControls}" aria-current="${x => x.ariaCurrent}" aria-describedBy="${x => x.ariaDescribedby}" aria-details="${x => x.ariaDetails}" aria-disabled="${x => x.ariaDisabled}" aria-errormessage="${x => x.ariaErrormessage}" aria-flowto="${x => x.ariaFlowto}" aria-haspopup="${x => x.ariaHaspopup}" aria-hidden="${x => x.ariaHidden}" aria-invalid="${x => x.ariaInvalid}" aria-keyshortcuts="${x => x.ariaKeyshortcuts}" aria-label="${x => x.ariaLabel}" aria-labelledby="${x => x.ariaLabelledby}" aria-live="${x => x.ariaLive}" aria-owns="${x => x.ariaOwns}" aria-relevant="${x => x.ariaRelevant}" aria-roledescription="${x => x.ariaRoledescription}" ${ref("control")}/>${endTemplate}</div></template>`;
+})}></slot></label><div class="root" part="root">${startTemplate}<input class="control" part="control" id="control" @input="${x => x.handleTextInput()}" @change="${x => x.handleChange()}" ?autofocus="${x => x.autofocus}" ?disabled="${x => x.disabled}" list="${x => x.list}" maxlength="${x => x.maxlength}" minlength="${x => x.minlength}" pattern="${x => x.pattern}" placeholder="${x => x.placeholder}" ?readonly="${x => x.readOnly}" ?required="${x => x.required}" size="${x => x.size}" ?spellcheck="${x => x.spellcheck}" :value="${x => x.value}" type="${x => x.type}" aria-atomic="${x => x.ariaAtomic}" aria-busy="${x => x.ariaBusy}" aria-controls="${x => x.ariaControls}" aria-current="${x => x.ariaCurrent}" aria-describedBy="${x => x.ariaDescribedby}" aria-details="${x => x.ariaDetails}" aria-disabled="${x => x.ariaDisabled}" aria-errormessage="${x => x.ariaErrormessage}" aria-flowto="${x => x.ariaFlowto}" aria-haspopup="${x => x.ariaHaspopup}" aria-hidden="${x => x.ariaHidden}" aria-invalid="${x => x.ariaInvalid}" aria-keyshortcuts="${x => x.ariaKeyshortcuts}" aria-label="${x => x.ariaLabel}" aria-labelledby="${x => x.ariaLabelledby}" aria-live="${x => x.ariaLive}" aria-owns="${x => x.ariaOwns}" aria-relevant="${x => x.ariaRelevant}" aria-roledescription="${x => x.ariaRoledescription}" ${ref("control")} />${endTemplate}</div></template>`;
 
 class _TextField extends FoundationElement {}
 /**
@@ -15755,6 +15668,8 @@ class NumberField extends FormAssociatedNumberField {
         this.max = numb;
       }
     }
+
+    this.updateValue(this.value);
   }
 
   minChanged(previousValue, nextValue) {
@@ -15768,6 +15683,8 @@ class NumberField extends FormAssociatedNumberField {
         this.min = numb;
       }
     }
+
+    this.updateValue(this.value);
   }
   /**
    *
@@ -15778,39 +15695,42 @@ class NumberField extends FormAssociatedNumberField {
 
   valueChanged(previousValue, nextValue) {
     super.valueChanged(previousValue, nextValue);
-    const numb = parseFloat(nextValue);
-    let out = numb == nextValue ? nextValue : numb;
-
-    if (nextValue === "" || isNaN(numb)) {
-      out = "";
-    } else {
-      out = this.getValidValue(numb);
-    }
-
-    this.value = out;
-
-    if (this.proxy instanceof HTMLElement) {
-      this.proxy.value = this.value;
-    }
+    this.updateValue(nextValue);
   }
   /**
-   * Ensures that the value is between the min and max values
+   * Updates the value. Validates that it's a number, between the min
+   *  and max, updates the proxy and emits events.
    *
-   * @param value - number to evaluate
-   * @returns - a string repesentation
-   *
+   * @param value - value to be validated
    * @internal
    */
 
 
-  getValidValue(value) {
-    if (this.min !== undefined && value < this.min) {
-      value = this.min;
-    } else if (this.max !== undefined && value > this.max) {
-      value = this.max;
+  updateValue(value) {
+    if (value === "" || isNaN(parseFloat(value))) {
+      value = "";
+    } else {
+      value = parseFloat(value);
+
+      if (this.min !== undefined && value < this.min) {
+        value = this.min;
+      } else if (this.max !== undefined && value > this.max) {
+        value = this.max;
+      }
+
+      value = parseFloat(value.toPrecision(12)).toString();
     }
 
-    return parseFloat(value.toPrecision(12)).toString();
+    if (value != this.value) {
+      this.value = value;
+
+      if (this.proxy instanceof HTMLInputElement) {
+        this.proxy.value = this.value;
+      }
+
+      this.$emit("input");
+      this.$emit("change");
+    }
   }
   /**
    * Increments the value using the step value
@@ -15821,8 +15741,7 @@ class NumberField extends FormAssociatedNumberField {
 
   stepUp() {
     const stepUpValue = this.step + (parseFloat(this.value) || 0);
-    this.value = this.getValidValue(stepUpValue);
-    this.$emit("input");
+    this.updateValue(stepUpValue);
   }
   /**
    * Decrements the value using the step value
@@ -15833,8 +15752,7 @@ class NumberField extends FormAssociatedNumberField {
 
   stepDown() {
     const stepDownValue = (parseFloat(this.value) || 0) - this.step;
-    this.value = this.getValidValue(stepDownValue);
-    this.$emit("input");
+    this.updateValue(stepDownValue);
   }
   /**
    * @internal
@@ -15929,7 +15847,7 @@ applyMixins(NumberField, StartEnd, DelegatesARIATextbox);
  * @public
  */
 
-const progressRingTemplate = (context, definition) => html`<template role="progressbar" aria-valuenow="${x => x.value}" aria-valuemin="${x => x.min}" aria-valuemax="${x => x.max}" class="${x => x.paused ? "paused" : ""}">${when(x => typeof x.value === "number", html`<svg class="progress" part="progress" viewBox="0 0 16 16" slot="determinate"><circle class="background" part="background" cx="8px" cy="8px" r="7px"></circle><circle class="determinate" part="determinate" style="stroke-dasharray:${x => 44 * x.value / 100}px 44px" cx="8px" cy="8px" r="7px"></circle></svg>`)} ${when(x => typeof x.value !== "number", html`<slot name="indeterminate" slot="indeterminate">${definition.indeterminateIndicator || ""}</slot>`)}</template>`;
+const progressRingTemplate = (context, definition) => html`<template role="progressbar" aria-valuenow="${x => x.value}" aria-valuemin="${x => x.min}" aria-valuemax="${x => x.max}" class="${x => x.paused ? "paused" : ""}">${when(x => typeof x.value === "number", html`<svg class="progress" part="progress" viewBox="0 0 16 16" slot="determinate"><circle class="background" part="background" cx="8px" cy="8px" r="7px"></circle><circle class="determinate" part="determinate" style="stroke-dasharray: ${x => 44 * x.value / 100}px 44px" cx="8px" cy="8px" r="7px"></circle></svg>`)} ${when(x => typeof x.value !== "number", html`<slot name="indeterminate" slot="indeterminate">${definition.indeterminateIndicator || ""}</slot>`)}</template>`;
 
 /**
  * An Progress HTML Element.
@@ -15961,7 +15879,7 @@ __decorate([attr({
  * @public
  */
 
-const progressTemplate = (context, defintion) => html`<template role="progressbar" aria-valuenow="${x => x.value}" aria-valuemin="${x => x.min}" aria-valuemax="${x => x.max}" class="${x => x.paused ? "paused" : ""}">${when(x => typeof x.value === "number", html`<div class="progress" part="progress" slot="determinate"><div class="determinate" part="determinate" style="width:${x => x.value}%"></div></div>`)} ${when(x => typeof x.value !== "number", html`<div class="progress" part="progress" slot="indeterminate"><slot class="indeterminate" name="indeterminate">${defintion.indeterminateIndicator1 || ""} ${defintion.indeterminateIndicator2 || ""}</slot></div>`)}</template>`;
+const progressTemplate = (context, defintion) => html`<template role="progressbar" aria-valuenow="${x => x.value}" aria-valuemin="${x => x.min}" aria-valuemax="${x => x.max}" class="${x => x.paused ? "paused" : ""}">${when(x => typeof x.value === "number", html`<div class="progress" part="progress" slot="determinate"><div class="determinate" part="determinate" style="width: ${x => x.value}%"></div></div>`)} ${when(x => typeof x.value !== "number", html`<div class="progress" part="progress" slot="indeterminate"><slot class="indeterminate" name="indeterminate">${defintion.indeterminateIndicator1 || ""} ${defintion.indeterminateIndicator2 || ""}</slot></div>`)}</template>`;
 
 /**
  * The template for the {@link @microsoft/fast-foundation#RadioGroup} component.
@@ -17404,7 +17322,7 @@ applyMixins(Select, StartEnd, DelegatesARIASelect);
  * @public
  */
 
-const selectTemplate = (context, definition) => html`<template class="${x => x.open ? "open" : ""} ${x => x.disabled ? "disabled" : ""} ${x => x.position}" role="${x => x.role}" tabindex="${x => !x.disabled ? "0" : null}" aria-disabled="${x => x.ariaDisabled}" aria-expanded="${x => x.ariaExpanded}" @click="${(x, c) => x.clickHandler(c.event)}" @focusout="${(x, c) => x.focusoutHandler(c.event)}" @keydown="${(x, c) => x.keydownHandler(c.event)}"><div aria-activedescendant="${x => x.open ? x.ariaActiveDescendant : null}" aria-controls="listbox" aria-expanded="${x => x.ariaExpanded}" aria-haspopup="listbox" class="control" part="control" role="button" ?disabled="${x => x.disabled}">${startTemplate}<slot name="button-container"><div class="selected-value" part="selected-value"><slot name="selected-value">${x => x.displayValue}</slot></div><div class="indicator" part="indicator" aria-hidden="true"><slot name="indicator">${definition.indicator || ""}</slot></div></slot>${endTemplate}</div><div aria-disabled="${x => x.disabled}" class="listbox" id="listbox" part="listbox" role="listbox" style="--max-height:${x => x.maxHeight}px" ?disabled="${x => x.disabled}" ?hidden="${x => !x.open}"><slot ${slotted({
+const selectTemplate = (context, definition) => html`<template class="${x => x.open ? "open" : ""} ${x => x.disabled ? "disabled" : ""} ${x => x.position}" role="${x => x.role}" tabindex="${x => !x.disabled ? "0" : null}" aria-disabled="${x => x.ariaDisabled}" aria-expanded="${x => x.ariaExpanded}" @click="${(x, c) => x.clickHandler(c.event)}" @focusout="${(x, c) => x.focusoutHandler(c.event)}" @keydown="${(x, c) => x.keydownHandler(c.event)}"><div aria-activedescendant="${x => x.open ? x.ariaActiveDescendant : null}" aria-controls="listbox" aria-expanded="${x => x.ariaExpanded}" aria-haspopup="listbox" class="control" part="control" role="button" ?disabled="${x => x.disabled}">${startTemplate}<slot name="button-container"><div class="selected-value" part="selected-value"><slot name="selected-value">${x => x.displayValue}</slot></div><div class="indicator" part="indicator"><slot name="indicator">${definition.indicator || ""}</slot></div></slot>${endTemplate}</div><div aria-disabled="${x => x.disabled}" class="listbox" id="listbox" part="listbox" role="listbox" style="--max-height: ${x => x.maxHeight}px" ?disabled="${x => x.disabled}" ?hidden="${x => !x.open}"><slot ${slotted({
   filter: Listbox.slottedOptionFilter,
   flatten: true,
   property: "slottedOptions"
@@ -17454,7 +17372,7 @@ __decorate([attr({
  * @public
  */
 
-const sliderLabelTemplate = (context, definition) => html`<template aria-disabled="${x => x.disabled}" class="${x => x.sliderOrientation || Orientation.horizontal} ${x => x.disabled ? "disabled" : ""}"><div ${ref("root")}part="root" class="root" style="${x => x.positionStyle}"><div class="container">${when(x => !x.hideMark, html`<div class="mark"></div>`)}<div class="label"><slot></slot></div></div></div></template>`;
+const sliderLabelTemplate = (context, definition) => html`<template aria-disabled="${x => x.disabled}" class="${x => x.sliderOrientation || Orientation.horizontal} ${x => x.disabled ? "disabled" : ""}"><div ${ref("root")} part="root" class="root" style="${x => x.positionStyle}"><div class="container">${when(x => !x.hideMark, html`<div class="mark"></div>`)}<div class="label"><slot></slot></div></div></div></template>`;
 
 /**
  * Converts a pixel coordinate on the track to a percent of the track's range
@@ -17644,7 +17562,7 @@ __decorate([observable], SliderLabel.prototype, "sliderDirection", void 0);
  * @public
  */
 
-const sliderTemplate = (context, definition) => html`<template role="slider" class="${x => x.readOnly ? "readonly" : ""} ${x => x.orientation || Orientation.horizontal}" tabindex="${x => x.disabled ? null : 0}" aria-valuetext="${x => x.valueTextFormatter(x.value)}" aria-valuenow="${x => x.value}" aria-valuemin="${x => x.min}" aria-valuemax="${x => x.max}" aria-disabled="${x => x.disabled ? true : void 0}" aria-readonly="${x => x.readOnly ? true : void 0}" aria-orientation="${x => x.orientation}" class="${x => x.orientation}"><div part="positioning-region" class="positioning-region"><div ${ref("track")}part="track-container" class="track"><slot name="track"></slot></div><slot></slot><div ${ref("thumb")}part="thumb-container" class="thumb-container" style="${x => x.position}"><slot name="thumb">${definition.thumb || ""}</slot></div></div></template>`;
+const sliderTemplate = (context, definition) => html`<template role="slider" class="${x => x.readOnly ? "readonly" : ""} ${x => x.orientation || Orientation.horizontal}" tabindex="${x => x.disabled ? null : 0}" aria-valuetext="${x => x.valueTextFormatter(x.value)}" aria-valuenow="${x => x.value}" aria-valuemin="${x => x.min}" aria-valuemax="${x => x.max}" aria-disabled="${x => x.disabled ? true : void 0}" aria-readonly="${x => x.readOnly ? true : void 0}" aria-orientation="${x => x.orientation}" class="${x => x.orientation}"><div part="positioning-region" class="positioning-region"><div ${ref("track")} part="track-container" class="track"><slot name="track"></slot></div><slot></slot><div ${ref("thumb")} part="thumb-container" class="thumb-container" style="${x => x.position}"><slot name="thumb">${definition.thumb || ""}</slot></div></div></template>`;
 
 class _Slider extends FoundationElement {}
 /**
@@ -18297,7 +18215,7 @@ __decorate([attr({
  * @public
  */
 
-const tabsTemplate = (context, definition) => html`<template class="${x => x.orientation}">${startTemplate}<div class="tablist" part="tablist" role="tablist"><slot class="tab" name="tab" part="tab" ${slotted("tabs")}></slot>${when(x => x.showActiveIndicator, html`<div ${ref("activeIndicatorRef")}class="activeIndicator" part="activeIndicator"></div>`)}</div>${endTemplate}<div class="tabpanel"><slot name="tabpanel" part="tabpanel" ${slotted("tabpanels")}></slot></div></template>`;
+const tabsTemplate = (context, definition) => html`<template class="${x => x.orientation}">${startTemplate}<div class="tablist" part="tablist" role="tablist"><slot class="tab" name="tab" part="tab" ${slotted("tabs")}></slot>${when(x => x.showActiveIndicator, html`<div ${ref("activeIndicatorRef")} class="activeIndicator" part="activeIndicator"></div>`)}</div>${endTemplate}<div class="tabpanel"><slot name="tabpanel" part="tabpanel" ${slotted("tabpanels")}></slot></div></template>`;
 
 /**
  * The orientation of the {@link @microsoft/fast-foundation#(Tabs:class)} component
@@ -19125,7 +19043,7 @@ applyMixins(Toolbar, StartEnd, DelegatesARIAToolbar);
  */
 
 const tooltipTemplate = (context, definition) => {
-  return html` ${when(x => x.tooltipVisible, html`<${context.tagFor(AnchoredRegion)}fixed-placement="true" vertical-positioning-mode="${x => x.verticalPositioningMode}" vertical-default-position="${x => x.verticalDefaultPosition}" vertical-inset="${x => x.verticalInset}" vertical-scaling="${x => x.verticalScaling}" horizontal-positioning-mode="${x => x.horizontalPositioningMode}" horizontal-default-position="${x => x.horizontalDefaultPosition}" horizontal-scaling="${x => x.horizontalScaling}" horizontal-inset="${x => x.horizontalInset}" dir="${x => x.currentDirection}" ${ref("region")}><div class="tooltip" part="tooltip" role="tooltip"><slot></slot></div></${context.tagFor(AnchoredRegion)}>`)} `;
+  return html` ${when(x => x.tooltipVisible, html`<${context.tagFor(AnchoredRegion)} fixed-placement="true" auto-update-mode="${x => x.autoUpdateMode}" vertical-positioning-mode="${x => x.verticalPositioningMode}" vertical-default-position="${x => x.verticalDefaultPosition}" vertical-inset="${x => x.verticalInset}" vertical-scaling="${x => x.verticalScaling}" horizontal-positioning-mode="${x => x.horizontalPositioningMode}" horizontal-default-position="${x => x.horizontalDefaultPosition}" horizontal-scaling="${x => x.horizontalScaling}" horizontal-inset="${x => x.horizontalInset}" dir="${x => x.currentDirection}" ${ref("region")}><div class="tooltip" part="tooltip" role="tooltip"><slot></slot></div></${context.tagFor(AnchoredRegion)}>`)} `;
 };
 
 /**
@@ -19194,6 +19112,16 @@ class Tooltip extends FoundationElement {
      */
 
     this.delay = 300;
+    /**
+     * Controls when the tooltip updates its position, default is 'anchor' which only updates when
+     * the anchor is resized.  'auto' will update on scroll/resize events.
+     * Corresponds to anchored-region auto-update-mode.
+     * @public
+     * @remarks
+     * HTML Attribute: auto-update-mode
+     */
+
+    this.autoUpdateMode = "anchor";
     /**
      * the html element currently being used as anchor.
      * Setting this directly overrides the anchor attribute.
@@ -19279,14 +19207,14 @@ class Tooltip extends FoundationElement {
      */
 
     this.handlePositionChange = ev => {
-      this.classList.toggle("top", this.region.verticalPosition === "top");
-      this.classList.toggle("bottom", this.region.verticalPosition === "bottom");
-      this.classList.toggle("inset-top", this.region.verticalPosition === "insetTop");
-      this.classList.toggle("inset-bottom", this.region.verticalPosition === "insetBottom");
-      this.classList.toggle("left", this.region.horizontalPosition === "left");
-      this.classList.toggle("right", this.region.horizontalPosition === "right");
-      this.classList.toggle("inset-left", this.region.horizontalPosition === "insetLeft");
-      this.classList.toggle("inset-right", this.region.horizontalPosition === "insetRight");
+      this.classList.toggle("top", this.region.verticalPosition === "start");
+      this.classList.toggle("bottom", this.region.verticalPosition === "end");
+      this.classList.toggle("inset-top", this.region.verticalPosition === "insetStart");
+      this.classList.toggle("inset-bottom", this.region.verticalPosition === "insetEnd");
+      this.classList.toggle("left", this.region.horizontalPosition === "start");
+      this.classList.toggle("right", this.region.horizontalPosition === "end");
+      this.classList.toggle("inset-left", this.region.horizontalPosition === "insetStart");
+      this.classList.toggle("inset-right", this.region.horizontalPosition === "insetEnd");
     };
     /**
      * mouse enters anchor
@@ -19579,6 +19507,10 @@ __decorate([attr], Tooltip.prototype, "anchor", void 0);
 __decorate([attr], Tooltip.prototype, "delay", void 0);
 
 __decorate([attr], Tooltip.prototype, "position", void 0);
+
+__decorate([attr({
+  attribute: "auto-update-mode"
+})], Tooltip.prototype, "autoUpdateMode", void 0);
 
 __decorate([observable], Tooltip.prototype, "anchorElement", void 0);
 
@@ -19893,7 +19825,7 @@ applyMixins(TreeItem, StartEnd);
  * @public
  */
 
-const treeViewTemplate = (context, definition) => html`<template role="tree" ${ref("treeView")}@keydown="${(x, c) => x.handleKeyDown(c.event)}" @focusout="${(x, c) => x.handleBlur(c.event)}"><slot ${slotted("slottedTreeItems")}></slot></template>`;
+const treeViewTemplate = (context, definition) => html`<template role="tree" ${ref("treeView")} @keydown="${(x, c) => x.handleKeyDown(c.event)}" @focusout="${(x, c) => x.handleBlur(c.event)}"><slot ${slotted("slottedTreeItems")}></slot></template>`;
 
 /**
  * A Tree view Custom HTML Element.
@@ -22864,7 +22796,8 @@ const neutralLayer4Recipe = create$1({
 
 const neutralLayer4$1 = create$1("neutral-layer-4").withDefault(element => neutralLayer4Recipe.getValueFor(element).evaluate(element));
 
-const accordionStyles = (context, definition) => css` ${display("flex")} :host{box-sizing: border-box;flex-direction: column;font-family: ${bodyFont};font-size: ${typeRampMinus1FontSize};line-height: ${typeRampMinus1LineHeight};color: ${neutralForegroundRest};border-top: calc(${strokeWidth} * 1px) solid ${neutralStrokeDividerRest}}`;
+const accordionStyles = (context, definition) => css`
+        ${display("flex")} :host{box-sizing:border-box;flex-direction:column;font-family:${bodyFont};font-size:${typeRampMinus1FontSize};line-height:${typeRampMinus1LineHeight};color:${neutralForegroundRest};border-top:calc(${strokeWidth} * 1px) solid ${neutralStrokeDividerRest}}`;
 
 /**
  * A formula to retrieve the control height.
@@ -22874,7 +22807,9 @@ const accordionStyles = (context, definition) => css` ${display("flex")} :host{b
 
 const heightNumber = cssPartial`(${baseHeightMultiplier} + ${density}) * ${designUnit}`;
 
-const accordionItemStyles = (context, definition) => css` ${display("flex")} :host{box-sizing: border-box;font-family: ${bodyFont};flex-direction: column;font-size: ${typeRampMinus1FontSize};line-height: ${typeRampMinus1LineHeight};border-bottom: calc(${strokeWidth} * 1px) solid ${neutralStrokeDividerRest}}.region{display: none;padding: calc((6 + (${designUnit} * 2 * ${density})) * 1px)}.heading{display: grid;position: relative;grid-template-columns: auto 1fr auto calc(${heightNumber} * 1px);z-index: 2}.button{appearance: none;border: none;background: none;grid-column: 2;grid-row: 1;outline: none;padding: 0 calc((6 + (${designUnit} * 2 * ${density})) * 1px);text-align: left;height: calc(${heightNumber} * 1px);color: ${neutralForegroundRest};cursor: pointer;font-family: inherit}.button:hover{color: ${neutralForegroundRest}}.button:active{color: ${neutralForegroundRest}}.button::before{content: "";position: absolute;top: 0;left: 0;right: 0;bottom: 0;z-index: 1;cursor: pointer}.button:${focusVisible}::before{outline: none;border: calc(${focusStrokeWidth} * 1px) solid ${focusStrokeOuter$1};border-radius: calc(${controlCornerRadius} * 1px)}:host([expanded]) .region{display: block}.icon{display: flex;align-items: center;justify-content: center;grid-column: 4;z-index: 2;pointer-events: none}slot[name="expanded-icon"], slot[name="collapsed-icon"]{fill: ${accentFillRest}}slot[name="collapsed-icon"]{display: flex}:host([expanded]) slot[name="collapsed-icon"]{display: none}slot[name="expanded-icon"]{display: none}:host([expanded]) slot[name="expanded-icon"]{display: flex}.start{display: flex;align-items: center;padding-inline-start: calc(${designUnit} * 1px);justify-content: center;grid-column: 1;z-index: 2}.end{display: flex;align-items: center;justify-content: center;grid-column: 3;z-index: 2}`.withBehaviors(forcedColorsStylesheetBehavior(css` .button:${focusVisible}::before{border-color: ${SystemColors.Highlight}}:host slot[name="collapsed-icon"], :host([expanded]) slot[name="expanded-icon"]{fill: ${SystemColors.ButtonText}}`));
+const accordionItemStyles = (context, definition) => css`
+    ${display("flex")} :host{box-sizing:border-box;font-family:${bodyFont};flex-direction:column;font-size:${typeRampMinus1FontSize};line-height:${typeRampMinus1LineHeight};border-bottom:calc(${strokeWidth} * 1px) solid ${neutralStrokeDividerRest}}.region{display:none;padding:calc((6 + (${designUnit} * 2 * ${density})) * 1px)}.heading{display:grid;position:relative;grid-template-columns:auto 1fr auto calc(${heightNumber} * 1px);z-index:2}.button{appearance:none;border:none;background:none;grid-column:2;grid-row:1;outline:none;padding:0 calc((6 + (${designUnit} * 2 * ${density})) * 1px);text-align:left;height:calc(${heightNumber} * 1px);color:${neutralForegroundRest};cursor:pointer;font-family:inherit}.button:hover{color:${neutralForegroundRest}}.button:active{color:${neutralForegroundRest}}.button::before{content:"";position:absolute;top:0;left:0;right:0;bottom:0;z-index:1;cursor:pointer}.button:${focusVisible}::before{outline:none;border:calc(${focusStrokeWidth} * 1px) solid ${focusStrokeOuter$1};border-radius:calc(${controlCornerRadius} * 1px)}:host([expanded]) .region{display:block}.icon{display:flex;align-items:center;justify-content:center;grid-column:4;z-index:2;pointer-events:none}slot[name="expanded-icon"],slot[name="collapsed-icon"]{fill:${accentFillRest}}slot[name="collapsed-icon"]{display:flex}:host([expanded]) slot[name="collapsed-icon"]{display:none}slot[name="expanded-icon"]{display:none}:host([expanded]) slot[name="expanded-icon"]{display:flex}.start{display:flex;align-items:center;padding-inline-start:calc(${designUnit} * 1px);justify-content:center;grid-column:1;z-index:2}.end{display:flex;align-items:center;justify-content:center;grid-column:3;z-index:2}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+            .button:${focusVisible}::before{border-color:${SystemColors.Highlight}}:host slot[name="collapsed-icon"],:host([expanded]) slot[name="expanded-icon"]{fill:${SystemColors.ButtonText}}`));
 
 /**
  * A function that returns a {@link @microsoft/fast-foundation#AccordionItem} registration for configuring the component with a DesignSystem.
@@ -22997,35 +22932,47 @@ const elevation = `box-shadow: ${ambientShadow}, ${directionalShadow};`;
  * @internal
  */
 
-const BaseButtonStyles = css` ${display("inline-flex")} :host{font-family: ${bodyFont};outline: none;font-size: ${typeRampBaseFontSize};line-height: ${typeRampBaseLineHeight};height: calc(${heightNumber} * 1px);min-width: calc(${heightNumber} * 1px);background-color: ${neutralFillRest};color: ${neutralForegroundRest};border-radius: calc(${controlCornerRadius} * 1px);fill: currentcolor;cursor: pointer}.control{background: transparent;height: inherit;flex-grow: 1;box-sizing: border-box;display: inline-flex;justify-content: center;align-items: center;padding: 0 calc((10 + (${designUnit} * 2 * ${density})) * 1px);white-space: nowrap;outline: none;text-decoration: none;border: calc(${strokeWidth} * 1px) solid transparent;color: inherit;border-radius: inherit;fill: inherit;cursor: inherit;font-family: inherit;font-size: inherit;line-height: inherit}:host(:hover){background-color: ${neutralFillHover}}:host(:active){background-color: ${neutralFillActive}}.control:${focusVisible}{border-color: ${focusStrokeOuter$1};box-shadow: 0 0 0 calc((${focusStrokeWidth} - ${strokeWidth}) * 1px) ${focusStrokeOuter$1} inset}.control::-moz-focus-inner{border: 0}.start, .end{display: flex}.control.icon-only{padding: 0;line-height: 0}::slotted(svg){${
+const BaseButtonStyles = css`
+    ${display("inline-flex")} :host{font-family:${bodyFont};outline:none;font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight};height:calc(${heightNumber} * 1px);min-width:calc(${heightNumber} * 1px);background-color:${neutralFillRest};color:${neutralForegroundRest};border-radius:calc(${controlCornerRadius} * 1px);fill:currentcolor;cursor:pointer}.control{background:transparent;height:inherit;flex-grow:1;box-sizing:border-box;display:inline-flex;justify-content:center;align-items:center;padding:0 calc((10 + (${designUnit} * 2 * ${density})) * 1px);white-space:nowrap;outline:none;text-decoration:none;border:calc(${strokeWidth} * 1px) solid transparent;color:inherit;border-radius:inherit;fill:inherit;cursor:inherit;font-family:inherit;font-size:inherit;line-height:inherit}:host(:hover){background-color:${neutralFillHover}}:host(:active){background-color:${neutralFillActive}}.control:${focusVisible}{border-color:${focusStrokeOuter$1};box-shadow:0 0 0 calc((${focusStrokeWidth} - ${strokeWidth}) * 1px) ${focusStrokeOuter$1} inset}.control::-moz-focus-inner{border:0}.start,.end{display:flex}.control.icon-only{padding:0;line-height:0}::slotted(svg){${
 /* Glyph size and margin-left is temporary -
 replace when adaptive typography is figured out */
-""} width: 16px;height: 16px;pointer-events: none}.start{margin-inline-end: 11px}.end{margin-inline-start: 11px}`.withBehaviors(forcedColorsStylesheetBehavior(css` :host .control{background-color: ${SystemColors.ButtonFace};border-color: ${SystemColors.ButtonText};color: ${SystemColors.ButtonText};fill: currentColor}:host(:hover) .control{forced-color-adjust: none;background-color: ${SystemColors.Highlight};color: ${SystemColors.HighlightText}}.control:${focusVisible}{forced-color-adjust: none;background-color: ${SystemColors.Highlight};border-color: ${SystemColors.ButtonText};box-shadow: 0 0 0 calc((${focusStrokeWidth} - ${strokeWidth}) * 1px) ${SystemColors.ButtonText} inset;color: ${SystemColors.HighlightText}}.control:hover, :host([appearance="outline"]) .control:hover{border-color: ${SystemColors.ButtonText}}:host([href]) .control{border-color: ${SystemColors.LinkText};color: ${SystemColors.LinkText}}:host([href]) .control:hover, :host([href]) .control:${focusVisible}{forced-color-adjust: none;background: ${SystemColors.ButtonFace};border-color: ${SystemColors.LinkText};box-shadow: 0 0 0 1px ${SystemColors.LinkText} inset;color: ${SystemColors.LinkText};fill: currentColor}`));
+""} width:16px;height:16px;pointer-events:none}.start{margin-inline-end:11px}.end{margin-inline-start:11px}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+            :host .control{background-color:${SystemColors.ButtonFace};border-color:${SystemColors.ButtonText};color:${SystemColors.ButtonText};fill:currentColor}:host(:hover) .control{forced-color-adjust:none;background-color:${SystemColors.Highlight};color:${SystemColors.HighlightText}}.control:${focusVisible}{forced-color-adjust:none;background-color:${SystemColors.Highlight};border-color:${SystemColors.ButtonText};box-shadow:0 0 0 calc((${focusStrokeWidth} - ${strokeWidth}) * 1px) ${SystemColors.ButtonText} inset;color:${SystemColors.HighlightText}}.control:hover,:host([appearance="outline"]) .control:hover{border-color:${SystemColors.ButtonText}}:host([href]) .control{border-color:${SystemColors.LinkText};color:${SystemColors.LinkText}}:host([href]) .control:hover,:host([href]) .control:${focusVisible}{forced-color-adjust:none;background:${SystemColors.ButtonFace};border-color:${SystemColors.LinkText};box-shadow:0 0 0 1px ${SystemColors.LinkText} inset;color:${SystemColors.LinkText};fill:currentColor}`));
 /**
  * @internal
  */
 
-const AccentButtonStyles = css` :host([appearance="accent"]){background: ${accentFillRest};color: ${foregroundOnAccentRest}}:host([appearance="accent"]:hover){background: ${accentFillHover};color: ${foregroundOnAccentHover}}:host([appearance="accent"]:active) .control:active{background: ${accentFillActive};color: ${foregroundOnAccentActive}}:host([appearance="accent"]) .control:${focusVisible}{box-shadow: 0 0 0 calc((${focusStrokeWidth} - ${strokeWidth}) * 1px) ${focusStrokeOuter$1} inset, 0 0 0 calc((${focusStrokeWidth} + ${strokeWidth}) * 1px) ${focusStrokeInner$1} inset}`.withBehaviors(forcedColorsStylesheetBehavior(css` :host([appearance="accent"]) .control{forced-color-adjust: none;background: ${SystemColors.Highlight};color: ${SystemColors.HighlightText}}:host([appearance="accent"]) .control:hover, :host([appearance="accent"]:active) .control:active{background: ${SystemColors.HighlightText};border-color: ${SystemColors.Highlight};color: ${SystemColors.Highlight}}:host([appearance="accent"]) .control:${focusVisible}{border-color: ${SystemColors.Highlight};box-shadow: 0 0 0 calc(${focusStrokeWidth} * 1px) ${SystemColors.HighlightText} inset}:host([appearance="accent"][href]) .control{background: ${SystemColors.LinkText};color: ${SystemColors.HighlightText}}:host([appearance="accent"][href]) .control:hover{background: ${SystemColors.ButtonFace};border-color: ${SystemColors.LinkText};box-shadow: none;color: ${SystemColors.LinkText};fill: currentColor}:host([appearance="accent"][href]) .control:${focusVisible}{border-color: ${SystemColors.LinkText};box-shadow: 0 0 0 calc(${focusStrokeWidth} * 1px) ${SystemColors.HighlightText} inset}`));
+const AccentButtonStyles = css`
+    :host([appearance="accent"]){background:${accentFillRest};color:${foregroundOnAccentRest}}:host([appearance="accent"]:hover){background:${accentFillHover};color:${foregroundOnAccentHover}}:host([appearance="accent"]:active) .control:active{background:${accentFillActive};color:${foregroundOnAccentActive}}:host([appearance="accent"]) .control:${focusVisible}{box-shadow:0 0 0 calc((${focusStrokeWidth} - ${strokeWidth}) * 1px) ${focusStrokeOuter$1} inset,0 0 0 calc((${focusStrokeWidth} + ${strokeWidth}) * 1px) ${focusStrokeInner$1} inset}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+            :host([appearance="accent"]) .control{forced-color-adjust:none;background:${SystemColors.Highlight};color:${SystemColors.HighlightText}}:host([appearance="accent"]) .control:hover,:host([appearance="accent"]:active) .control:active{background:${SystemColors.HighlightText};border-color:${SystemColors.Highlight};color:${SystemColors.Highlight}}:host([appearance="accent"]) .control:${focusVisible}{border-color:${SystemColors.Highlight};box-shadow:0 0 0 calc(${focusStrokeWidth} * 1px) ${SystemColors.HighlightText} inset}:host([appearance="accent"][href]) .control{background:${SystemColors.LinkText};color:${SystemColors.HighlightText}}:host([appearance="accent"][href]) .control:hover{background:${SystemColors.ButtonFace};border-color:${SystemColors.LinkText};box-shadow:none;color:${SystemColors.LinkText};fill:currentColor}:host([appearance="accent"][href]) .control:${focusVisible}{border-color:${SystemColors.LinkText};box-shadow:0 0 0 calc(${focusStrokeWidth} * 1px) ${SystemColors.HighlightText} inset}`));
 /**
  * @internal
  */
 
-const HypertextStyles = css` :host([appearance="hypertext"]){font-size: inherit;line-height: inherit;height: auto;min-width: 0;background: transparent}:host([appearance="hypertext"]) .control{display: inline;padding: 0;border: none;box-shadow: none;border-radius: 0;line-height: 1}:host a.control:not(:link){background-color: transparent;cursor: default}:host([appearance="hypertext"]) .control:link, :host([appearance="hypertext"]) .control:visited{background: transparent;color: ${accentForegroundRest};border-bottom: calc(${strokeWidth} * 1px) solid ${accentForegroundRest}}:host([appearance="hypertext"]:hover), :host([appearance="hypertext"]) .control:hover{background: transparent;border-bottom-color: ${accentForegroundHover}}:host([appearance="hypertext"]:active), :host([appearance="hypertext"]) .control:active{background: transparent;border-bottom-color: ${accentForegroundActive}}:host([appearance="hypertext"]) .control:${focusVisible}{border-bottom: calc(${focusStrokeWidth} * 1px) solid ${focusStrokeOuter$1};margin-bottom: calc(calc(${strokeWidth} - ${focusStrokeWidth}) * 1px)}`.withBehaviors(forcedColorsStylesheetBehavior(css` :host([appearance="hypertext"]:hover){background-color: ${SystemColors.ButtonFace};color: ${SystemColors.ButtonText}}:host([appearance="hypertext"][href]) .control:hover, :host([appearance="hypertext"][href]) .control:active, :host([appearance="hypertext"][href]) .control:${focusVisible}{color: ${SystemColors.LinkText};border-bottom-color: ${SystemColors.LinkText};box-shadow: none}`));
+const HypertextStyles = css`
+    :host([appearance="hypertext"]){font-size:inherit;line-height:inherit;height:auto;min-width:0;background:transparent}:host([appearance="hypertext"]) .control{display:inline;padding:0;border:none;box-shadow:none;border-radius:0;line-height:1}:host a.control:not(:link){background-color:transparent;cursor:default}:host([appearance="hypertext"]) .control:link,:host([appearance="hypertext"]) .control:visited{background:transparent;color:${accentForegroundRest};border-bottom:calc(${strokeWidth} * 1px) solid ${accentForegroundRest}}:host([appearance="hypertext"]:hover),:host([appearance="hypertext"]) .control:hover{background:transparent;border-bottom-color:${accentForegroundHover}}:host([appearance="hypertext"]:active),:host([appearance="hypertext"]) .control:active{background:transparent;border-bottom-color:${accentForegroundActive}}:host([appearance="hypertext"]) .control:${focusVisible}{border-bottom:calc(${focusStrokeWidth} * 1px) solid ${focusStrokeOuter$1};margin-bottom:calc(calc(${strokeWidth} - ${focusStrokeWidth}) * 1px)}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+            :host([appearance="hypertext"]:hover){background-color:${SystemColors.ButtonFace};color:${SystemColors.ButtonText}}:host([appearance="hypertext"][href]) .control:hover,:host([appearance="hypertext"][href]) .control:active,:host([appearance="hypertext"][href]) .control:${focusVisible}{color:${SystemColors.LinkText};border-bottom-color:${SystemColors.LinkText};box-shadow:none}`));
 /**
  * @internal
  */
 
-const LightweightButtonStyles = css` :host([appearance="lightweight"]){background: transparent;color: ${accentForegroundRest}}:host([appearance="lightweight"]) .control{padding: 0;height: initial;border: none;box-shadow: none;border-radius: 0}:host([appearance="lightweight"]:hover){background: transparent;color: ${accentForegroundHover}}:host([appearance="lightweight"]:active){background: transparent;color: ${accentForegroundActive}}:host([appearance="lightweight"]) .content{position: relative}:host([appearance="lightweight"]) .content::before{content: "";display: block;height: calc(${strokeWidth} * 1px);position: absolute;top: calc(1em + 4px);width: 100%}:host([appearance="lightweight"]:hover) .content::before{background: ${accentForegroundHover}}:host([appearance="lightweight"]:active) .content::before{background: ${accentForegroundActive}}:host([appearance="lightweight"]) .control:${focusVisible} .content::before{background: ${neutralForegroundRest};height: calc(${focusStrokeWidth} * 1px)}`.withBehaviors(forcedColorsStylesheetBehavior(css` :host([appearance="lightweight"]) .control:hover, :host([appearance="lightweight"]) .control:${focusVisible}{forced-color-adjust: none;background: ${SystemColors.ButtonFace};color: ${SystemColors.Highlight}}:host([appearance="lightweight"]) .control:hover .content::before, :host([appearance="lightweight"]) .control:${focusVisible} .content::before{background: ${SystemColors.Highlight}}:host([appearance="lightweight"][href]) .control:hover, :host([appearance="lightweight"][href]) .control:${focusVisible}{background: ${SystemColors.ButtonFace};box-shadow: none;color: ${SystemColors.LinkText}}:host([appearance="lightweight"][href]) .control:hover .content::before, :host([appearance="lightweight"][href]) .control:${focusVisible} .content::before{background: ${SystemColors.LinkText}}`));
+const LightweightButtonStyles = css`
+    :host([appearance="lightweight"]){background:transparent;color:${accentForegroundRest}}:host([appearance="lightweight"]) .control{padding:0;height:initial;border:none;box-shadow:none;border-radius:0}:host([appearance="lightweight"]:hover){background:transparent;color:${accentForegroundHover}}:host([appearance="lightweight"]:active){background:transparent;color:${accentForegroundActive}}:host([appearance="lightweight"]) .content{position:relative}:host([appearance="lightweight"]) .content::before{content:"";display:block;height:calc(${strokeWidth} * 1px);position:absolute;top:calc(1em + 4px);width:100%}:host([appearance="lightweight"]:hover) .content::before{background:${accentForegroundHover}}:host([appearance="lightweight"]:active) .content::before{background:${accentForegroundActive}}:host([appearance="lightweight"]) .control:${focusVisible} .content::before{background:${neutralForegroundRest};height:calc(${focusStrokeWidth} * 1px)}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+            :host([appearance="lightweight"]) .control:hover,:host([appearance="lightweight"]) .control:${focusVisible}{forced-color-adjust:none;background:${SystemColors.ButtonFace};color:${SystemColors.Highlight}}:host([appearance="lightweight"]) .control:hover .content::before,:host([appearance="lightweight"]) .control:${focusVisible} .content::before{background:${SystemColors.Highlight}}:host([appearance="lightweight"][href]) .control:hover,:host([appearance="lightweight"][href]) .control:${focusVisible}{background:${SystemColors.ButtonFace};box-shadow:none;color:${SystemColors.LinkText}}:host([appearance="lightweight"][href]) .control:hover .content::before,:host([appearance="lightweight"][href]) .control:${focusVisible} .content::before{background:${SystemColors.LinkText}}`));
 /**
  * @internal
  */
 
-const OutlineButtonStyles = css` :host([appearance="outline"]){background: transparent;border-color: ${accentFillRest}}:host([appearance="outline"]:hover){border-color: ${accentFillHover}}:host([appearance="outline"]:active){border-color: ${accentFillActive}}:host([appearance="outline"]) .control{border-color: inherit}:host([appearance="outline"]) .control:${focusVisible}{box-shadow: 0 0 0 calc((${focusStrokeWidth} - ${strokeWidth}) * 1px) ${focusStrokeOuter$1} inset;border-color: ${focusStrokeOuter$1}}`.withBehaviors(forcedColorsStylesheetBehavior(css` :host([appearance="outline"]) .control{border-color: ${SystemColors.ButtonText}}:host([appearance="outline"]) .control:${focusVisible}{forced-color-adjust: none;background-color: ${SystemColors.Highlight};border-color: ${SystemColors.ButtonText};box-shadow: 0 0 0 calc((${focusStrokeWidth} - ${strokeWidth}) * 1px) ${SystemColors.ButtonText} inset;color: ${SystemColors.HighlightText};fill: currentColor}:host([appearance="outline"][href]) .control{background: ${SystemColors.ButtonFace};border-color: ${SystemColors.LinkText};color: ${SystemColors.LinkText};fill: currentColor}:host([appearance="outline"][href]) .control:hover, :host([appearance="outline"][href]) .control:${focusVisible}{forced-color-adjust: none;border-color: ${SystemColors.LinkText};box-shadow: 0 0 0 1px ${SystemColors.LinkText} inset}`));
+const OutlineButtonStyles = css`
+    :host([appearance="outline"]){background:transparent;border-color:${accentFillRest}}:host([appearance="outline"]:hover){border-color:${accentFillHover}}:host([appearance="outline"]:active){border-color:${accentFillActive}}:host([appearance="outline"]) .control{border-color:inherit}:host([appearance="outline"]) .control:${focusVisible}{box-shadow:0 0 0 calc((${focusStrokeWidth} - ${strokeWidth}) * 1px) ${focusStrokeOuter$1} inset;border-color:${focusStrokeOuter$1}}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+            :host([appearance="outline"]) .control{border-color:${SystemColors.ButtonText}}:host([appearance="outline"]) .control:${focusVisible}{forced-color-adjust:none;background-color:${SystemColors.Highlight};border-color:${SystemColors.ButtonText};box-shadow:0 0 0 calc((${focusStrokeWidth} - ${strokeWidth}) * 1px) ${SystemColors.ButtonText} inset;color:${SystemColors.HighlightText};fill:currentColor}:host([appearance="outline"][href]) .control{background:${SystemColors.ButtonFace};border-color:${SystemColors.LinkText};color:${SystemColors.LinkText};fill:currentColor}:host([appearance="outline"][href]) .control:hover,:host([appearance="outline"][href]) .control:${focusVisible}{forced-color-adjust:none;border-color:${SystemColors.LinkText};box-shadow:0 0 0 1px ${SystemColors.LinkText} inset}`));
 /**
  * @internal
  */
 
-const StealthButtonStyles = css` :host([appearance="stealth"]){background: ${neutralFillStealthRest}}:host([appearance="stealth"]:hover){background: ${neutralFillStealthHover}}:host([appearance="stealth"]:active){background: ${neutralFillStealthActive}}`.withBehaviors(forcedColorsStylesheetBehavior(css` :host([appearance="stealth"]), :host([appearance="stealth"]) .control{forced-color-adjust: none;background: ${SystemColors.ButtonFace};border-color: transparent;color: ${SystemColors.ButtonText};fill: currentColor}:host([appearance="stealth"]:hover) .control{background: ${SystemColors.Highlight};border-color: ${SystemColors.Highlight};color: ${SystemColors.HighlightText};fill: currentColor}:host([appearance="stealth"]:${focusVisible}) .control{background: ${SystemColors.Highlight};box-shadow: 0 0 0 1px ${SystemColors.Highlight};color: ${SystemColors.HighlightText};fill: currentColor}:host([appearance="stealth"][href]) .control{color: ${SystemColors.LinkText}}:host([appearance="stealth"][href]:hover) .control, :host([appearance="stealth"][href]:${focusVisible}) .control{background: ${SystemColors.LinkText};border-color: ${SystemColors.LinkText};color: ${SystemColors.HighlightText};fill: currentColor}:host([appearance="stealth"][href]:${focusVisible}) .control{forced-color-adjust: none;box-shadow: 0 0 0 1px ${SystemColors.LinkText}}`));
+const StealthButtonStyles = css`
+    :host([appearance="stealth"]){background:${neutralFillStealthRest}}:host([appearance="stealth"]:hover){background:${neutralFillStealthHover}}:host([appearance="stealth"]:active){background:${neutralFillStealthActive}}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+            :host([appearance="stealth"]),:host([appearance="stealth"]) .control{forced-color-adjust:none;background:${SystemColors.ButtonFace};border-color:transparent;color:${SystemColors.ButtonText};fill:currentColor}:host([appearance="stealth"]:hover) .control{background:${SystemColors.Highlight};border-color:${SystemColors.Highlight};color:${SystemColors.HighlightText};fill:currentColor}:host([appearance="stealth"]:${focusVisible}) .control{background:${SystemColors.Highlight};box-shadow:0 0 0 1px ${SystemColors.Highlight};color:${SystemColors.HighlightText};fill:currentColor}:host([appearance="stealth"][href]) .control{color:${SystemColors.LinkText}}:host([appearance="stealth"][href]:hover) .control,:host([appearance="stealth"][href]:${focusVisible}) .control{background:${SystemColors.LinkText};border-color:${SystemColors.LinkText};color:${SystemColors.HighlightText};fill:currentColor}:host([appearance="stealth"][href]:${focusVisible}) .control{forced-color-adjust:none;box-shadow:0 0 0 1px ${SystemColors.LinkText}}`));
 
 /**
  * Behavior to conditionally apply LTR and RTL stylesheets. To determine which to apply,
@@ -23131,7 +23078,9 @@ function appearanceBehavior(value, styles) {
   return new PropertyStyleSheetBehavior("appearance", value, styles);
 }
 
-const anchorStyles = (context, definition) => css` ${BaseButtonStyles} `.withBehaviors(appearanceBehavior("accent", AccentButtonStyles), appearanceBehavior("hypertext", HypertextStyles), appearanceBehavior("lightweight", LightweightButtonStyles), appearanceBehavior("outline", OutlineButtonStyles), appearanceBehavior("stealth", StealthButtonStyles));
+const anchorStyles = (context, definition) => css`
+        ${BaseButtonStyles}
+    `.withBehaviors(appearanceBehavior("accent", AccentButtonStyles), appearanceBehavior("hypertext", HypertextStyles), appearanceBehavior("lightweight", LightweightButtonStyles), appearanceBehavior("outline", OutlineButtonStyles), appearanceBehavior("stealth", StealthButtonStyles));
 
 /**
  * Base class for Anchor
@@ -23202,7 +23151,8 @@ const fastAnchor = Anchor$1.compose({
   }
 });
 
-const anchoredRegionStyles = (context, definition) => css` :host{contain: layout;display: block}`;
+const anchoredRegionStyles = (context, definition) => css`
+    :host{contain:layout;display:block}`;
 
 /**
  * A function that returns a {@link @microsoft/fast-foundation#AnchoredRegion} registration for configuring the component with a DesignSystem.
@@ -23226,9 +23176,22 @@ const fastAnchoredRegion = AnchoredRegion.compose({
 
 const anchoredRegionStyles$1 = anchoredRegionStyles;
 
-const rtl = css` ::slotted(fast-badge){left: 0}`;
-const ltr = css` ::slotted(fast-badge){right: 0}`;
-const avatarStyles = (context, definition) => css` ${display("flex")} :host{position: relative;height: var(--avatar-size, var(--avatar-size-default));max-width: var(--avatar-size, var(--avatar-size-default));--avatar-size-default: calc( ( (${baseHeightMultiplier} + ${density}) * ${designUnit} + ((${designUnit} * 8) - 40) ) * 1px );--avatar-text-size: ${typeRampBaseFontSize};--avatar-text-ratio: ${designUnit}}.link{text-decoration: none;color: ${neutralForegroundRest};display: flex;flex-direction: row;justify-content: center;align-items: center;min-width: 100%}.square{border-radius: calc(${controlCornerRadius} * 1px);min-width: 100%;overflow: hidden}.circle{border-radius: 100%;min-width: 100%;overflow: hidden}.backplate{position: relative;display: flex}.media, ::slotted(img){max-width: 100%;position: absolute;display: block}.content{font-size: calc( (var(--avatar-text-size) + var(--avatar-size, var(--avatar-size-default))) / var(--avatar-text-ratio) );line-height: var(--avatar-size, var(--avatar-size-default));display: block;min-height: var(--avatar-size, var(--avatar-size-default))}::slotted(fast-badge){position: absolute;display: block}`.withBehaviors(new DirectionalStyleSheetBehavior(ltr, rtl));
+const rtl = (context, definition) => css`
+    ::slotted(${context.tagFor(Badge)}){left:0}`;
+
+const ltr = (context, definition) => css`
+    ::slotted(${context.tagFor(Badge)}){right:0}`;
+
+const avatarStyles = (context, definition) => css`
+        ${display("flex")} :host{position:relative;height:var(--avatar-size,var(--avatar-size-default));max-width:var(--avatar-size,var(--avatar-size-default));--avatar-size-default:calc(
+                (
+                        (${baseHeightMultiplier} + ${density}) * ${designUnit} +
+                            ((${designUnit} * 8) - 40)
+                    ) * 1px
+            );--avatar-text-size:${typeRampBaseFontSize};--avatar-text-ratio:${designUnit}}.link{text-decoration:none;color:${neutralForegroundRest};display:flex;flex-direction:row;justify-content:center;align-items:center;min-width:100%}.square{border-radius:calc(${controlCornerRadius} * 1px);min-width:100%;overflow:hidden}.circle{border-radius:100%;min-width:100%;overflow:hidden}.backplate{position:relative;display:flex}.media,::slotted(img){max-width:100%;position:absolute;display:block}.content{font-size:calc(
+                (var(--avatar-text-size) + var(--avatar-size,var(--avatar-size-default))) /
+                    var(--avatar-text-ratio)
+            );line-height:var(--avatar-size,var(--avatar-size-default));display:block;min-height:var(--avatar-size,var(--avatar-size-default))}::slotted(${context.tagFor(Badge)}){position:absolute;display:block}`.withBehaviors(new DirectionalStyleSheetBehavior(ltr(context), rtl(context)));
 
 /**
  * The FAST Avatar Class
@@ -23250,10 +23213,11 @@ __decorate$1([attr], Avatar$1.prototype, "alt", void 0);
  */
 
 
-const imgTemplate = html` ${when(x => x.imgSrc, html`<img src="${x => x.imgSrc}" alt="${x => x.alt}" slot="media" class="media" part="media" />`)} `;
+const imgTemplate = html` ${when(x => x.imgSrc, html`<img src="${x => x.imgSrc}" alt="${x => x.alt}" slot="media" class="media" part="media" />`)}
+`;
 /**
  * A function that returns a {@link @microsoft/fast-foundation#Avatar} registration for configuring the component with a DesignSystem.
- *  {@link @microsoft/fast-foundation#AvatarTemplate}
+ *  {@link @microsoft/fast-foundation#avatarTemplate}
  *
  *
  * @public
@@ -23277,9 +23241,9 @@ const fastAvatar = Avatar$1.compose({
 
 const avatarStyles$1 = avatarStyles;
 
-const badgeStyles = (context, definition) => css` ${display("inline-block")} :host{box-sizing: border-box;font-family: ${bodyFont};font-size: ${typeRampMinus1FontSize};line-height: ${typeRampMinus1LineHeight}}.control{border-radius: calc(${controlCornerRadius} * 1px);padding: calc(${designUnit} * 0.5px) calc(${designUnit} * 1px);color: ${accentForegroundRest};font-weight: 600}.control[style]{font-weight: 400}:host([circular]) .control{border-radius: 100px;padding: 0 calc(${designUnit} * 1px);${
-/* Need to work with Brian on width and height here */
-""} height: calc((${heightNumber} - (${designUnit} * 3)) * 1px);min-width: calc((${heightNumber} - (${designUnit} * 3)) * 1px);display: flex;align-items: center;justify-content: center;box-sizing: border-box}`;
+const badgeStyles = (context, definition) => css`
+        ${display("inline-block")} :host{box-sizing:border-box;font-family:${bodyFont};font-size:${typeRampMinus1FontSize};line-height:${typeRampMinus1LineHeight}}.control{border-radius:calc(${controlCornerRadius} * 1px);padding:calc(((${designUnit} * 0.5) - ${strokeWidth}) * 1px)
+                calc((${designUnit} - ${strokeWidth}) * 1px);color:${accentForegroundRest};font-weight:600;border:calc(${strokeWidth} * 1px) solid transparent}.control[style]{font-weight:400}:host([circular]) .control{border-radius:100px;padding:0 calc(${designUnit} * 1px);height:calc((${heightNumber} - (${designUnit} * 3)) * 1px);min-width:calc((${heightNumber} - (${designUnit} * 3)) * 1px);display:flex;align-items:center;justify-content:center;box-sizing:border-box}`;
 
 /**
  * A function that returns a {@link @microsoft/fast-foundation#Badge} registration for configuring the component with a DesignSystem.
@@ -23303,10 +23267,9 @@ const fastBadge = Badge.compose({
 
 const badgeStyles$1 = badgeStyles;
 
-const breadcrumbItemStyles = (context, definition) => css` ${display("inline-flex")} :host{background: transparent;box-sizing: border-box;font-family: ${bodyFont};font-size: ${typeRampBaseFontSize};fill: currentColor;line-height: ${typeRampBaseLineHeight};min-width: calc(${heightNumber} * 1px);outline: none}.listitem{display: flex;align-items: center;width: max-content}.separator{margin: 0 6px}.control{align-items: center;box-sizing: border-box;color: ${accentForegroundRest};cursor: pointer;display: flex;fill: inherit;outline: none;text-decoration: none;white-space: nowrap}.control:hover{color: ${accentForegroundHover}}.control:active{color: ${accentForegroundActive}}.control .content{position: relative}.control .content::before{content: "";display: block;height: calc(${strokeWidth} * 1px);left: 0;position: absolute;right: 0;top: calc(1em + 4px);width: 100%}.control:hover .content::before{background: ${accentForegroundHover}}.control:active .content::before{background: ${accentForegroundActive}}.control:${focusVisible} .content::before{background: ${neutralForegroundRest};height: calc(${focusStrokeWidth} * 1px)}.control:not([href]){color: ${neutralForegroundRest};cursor: default}.control:not([href]) .content::before{background: none}.start, .end{display: flex}::slotted(svg){${
-/* Glyph size and margin-left is temporary -
-replace when adaptive typography is figured out */
-""} width: 16px;height: 16px}.start{margin-inline-end: 6px}.end{margin-inline-start: 6px}`.withBehaviors(forcedColorsStylesheetBehavior(css` .control:hover .content::before, .control:${focusVisible} .content::before{background: ${SystemColors.LinkText}}.start, .end{fill: ${SystemColors.ButtonText}}`));
+const breadcrumbItemStyles = (context, definition) => css`
+    ${display("inline-flex")} :host{background:transparent;box-sizing:border-box;font-family:${bodyFont};font-size:${typeRampBaseFontSize};fill:currentColor;line-height:${typeRampBaseLineHeight};min-width:calc(${heightNumber} * 1px);outline:none;color:${neutralForegroundRest}}.listitem{display:flex;align-items:center;width:max-content}.separator{margin:0 6px}.control{align-items:center;box-sizing:border-box;color:${accentForegroundRest};cursor:pointer;display:flex;fill:inherit;outline:none;text-decoration:none;white-space:nowrap}.control:hover{color:${accentForegroundHover}}.control:active{color:${accentForegroundActive}}.control .content{position:relative}.control .content::before{content:"";display:block;height:calc(${strokeWidth} * 1px);left:0;position:absolute;right:0;top:calc(1em + 4px);width:100%}.control:hover .content::before{background:${accentForegroundHover}}.control:active .content::before{background:${accentForegroundActive}}.control:${focusVisible} .content::before{background:${neutralForegroundRest};height:calc(${focusStrokeWidth} * 1px)}.control:not([href]){color:${neutralForegroundRest};cursor:default}.control:not([href]) .content::before{background:none}.start,.end{display:flex}::slotted(svg){width:16px;height:16px}.start{margin-inline-end:6px}.end{margin-inline-start:6px}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+                .control:hover .content::before,.control:${focusVisible} .content::before{background:${SystemColors.LinkText}}.start,.end{fill:${SystemColors.ButtonText}}`));
 
 /**
  * A function that returns a {@link @microsoft/fast-foundation#BreadcrumbItem} registration for configuring the component with a DesignSystem.
@@ -23328,7 +23291,8 @@ const fastBreadcrumbItem = BreadcrumbItem.compose({
   }
 });
 
-const breadcrumbStyles = (context, definition) => css` ${display("inline-block")} :host{box-sizing: border-box;font-family: ${bodyFont};font-size: ${typeRampBaseFontSize};line-height: ${typeRampBaseLineHeight}}.list{display: flex;flex-wrap: wrap}`;
+const breadcrumbStyles = (context, definition) => css`
+    ${display("inline-block")} :host{box-sizing:border-box;font-family:${bodyFont};font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight}}.list{display:flex;flex-wrap:wrap}`;
 
 /**
  * A function that returns a {@link @microsoft/fast-foundation#Breadcrumb} registration for configuring the component with a DesignSystem.
@@ -23346,7 +23310,24 @@ const fastBreadcrumb = Breadcrumb.compose({
   styles: breadcrumbStyles
 });
 
-const buttonStyles = (context, definition) => css` :host([disabled]), :host([disabled]:hover), :host([disabled]:active){opacity: ${disabledOpacity};background-color: ${neutralFillRest};cursor: ${disabledCursor}}${BaseButtonStyles} `.withBehaviors(forcedColorsStylesheetBehavior(css` :host([disabled]), :host([disabled]) .control, :host([disabled]:hover), :host([disabled]:active){forced-color-adjust: none;background-color: ${SystemColors.ButtonFace};border-color: ${SystemColors.GrayText};color: ${SystemColors.GrayText};cursor: ${disabledCursor};opacity: 1}`), appearanceBehavior("accent", css` :host([appearance="accent"][disabled]), :host([appearance="accent"][disabled]:hover), :host([appearance="accent"][disabled]:active){background: ${accentFillRest}}${AccentButtonStyles} `.withBehaviors(forcedColorsStylesheetBehavior(css` :host([appearance="accent"][disabled]) .control, :host([appearance="accent"][disabled]) .control:hover{background: ${SystemColors.ButtonFace};border-color: ${SystemColors.GrayText};color: ${SystemColors.GrayText}}`))), appearanceBehavior("lightweight", css` :host([appearance="lightweight"][disabled]:hover), :host([appearance="lightweight"][disabled]:active){background-color: transparent;color: ${accentForegroundRest}}:host([appearance="lightweight"][disabled]) .content::before, :host([appearance="lightweight"][disabled]:hover) .content::before, :host([appearance="lightweight"][disabled]:active) .content::before{background: transparent}${LightweightButtonStyles} `.withBehaviors(forcedColorsStylesheetBehavior(css` :host([appearance="lightweight"].disabled) .control{forced-color-adjust: none;color: ${SystemColors.GrayText}}:host([appearance="lightweight"].disabled) .control:hover .content::before{background: none}`))), appearanceBehavior("outline", css` :host([appearance="outline"][disabled]), :host([appearance="outline"][disabled]:hover), :host([appearance="outline"][disabled]:active){background: transparent;border-color: ${accentFillRest}}${OutlineButtonStyles} `.withBehaviors(forcedColorsStylesheetBehavior(css` :host([appearance="outline"][disabled]) .control{border-color: ${SystemColors.GrayText}}`))), appearanceBehavior("stealth", css` :host([appearance="stealth"][disabled]), :host([appearance="stealth"][disabled]:hover), :host([appearance="stealth"][disabled]:active){background: ${neutralFillStealthRest}}${StealthButtonStyles} `.withBehaviors(forcedColorsStylesheetBehavior(css` :host([appearance="stealth"][disabled]){background: ${SystemColors.ButtonFace}}:host([appearance="stealth"][disabled]) .control{background: ${SystemColors.ButtonFace};border-color: transparent;color: ${SystemColors.GrayText}}`))));
+const buttonStyles = (context, definition) => css`
+        :host([disabled]),:host([disabled]:hover),:host([disabled]:active){opacity:${disabledOpacity};background-color:${neutralFillRest};cursor:${disabledCursor}}${BaseButtonStyles}
+    `.withBehaviors(forcedColorsStylesheetBehavior(css`
+                :host([disabled]),:host([disabled]) .control,:host([disabled]:hover),:host([disabled]:active){forced-color-adjust:none;background-color:${SystemColors.ButtonFace};border-color:${SystemColors.GrayText};color:${SystemColors.GrayText};cursor:${disabledCursor};opacity:1}`), appearanceBehavior("accent", css`
+                :host([appearance="accent"][disabled]),:host([appearance="accent"][disabled]:hover),:host([appearance="accent"][disabled]:active){background:${accentFillRest}}${AccentButtonStyles}
+            `.withBehaviors(forcedColorsStylesheetBehavior(css`
+                        :host([appearance="accent"][disabled]) .control,:host([appearance="accent"][disabled]) .control:hover{background:${SystemColors.ButtonFace};border-color:${SystemColors.GrayText};color:${SystemColors.GrayText}}`))), appearanceBehavior("lightweight", css`
+                :host([appearance="lightweight"][disabled]:hover),:host([appearance="lightweight"][disabled]:active){background-color:transparent;color:${accentForegroundRest}}:host([appearance="lightweight"][disabled]) .content::before,:host([appearance="lightweight"][disabled]:hover) .content::before,:host([appearance="lightweight"][disabled]:active) .content::before{background:transparent}${LightweightButtonStyles}
+            `.withBehaviors(forcedColorsStylesheetBehavior(css`
+                        :host([appearance="lightweight"].disabled) .control{forced-color-adjust:none;color:${SystemColors.GrayText}}:host([appearance="lightweight"].disabled)
+                            .control:hover
+                            .content::before{background:none}`))), appearanceBehavior("outline", css`
+                :host([appearance="outline"][disabled]),:host([appearance="outline"][disabled]:hover),:host([appearance="outline"][disabled]:active){background:transparent;border-color:${accentFillRest}}${OutlineButtonStyles}
+            `.withBehaviors(forcedColorsStylesheetBehavior(css`
+                        :host([appearance="outline"][disabled]) .control{border-color:${SystemColors.GrayText}}`))), appearanceBehavior("stealth", css`
+                :host([appearance="stealth"][disabled]),:host([appearance="stealth"][disabled]:hover),:host([appearance="stealth"][disabled]:active){background:${neutralFillStealthRest}}${StealthButtonStyles}
+            `.withBehaviors(forcedColorsStylesheetBehavior(css`
+                        :host([appearance="stealth"][disabled]){background:${SystemColors.ButtonFace}}:host([appearance="stealth"][disabled]) .control{background:${SystemColors.ButtonFace};border-color:transparent;color:${SystemColors.GrayText}}`))));
 
 /**
  * @internal
@@ -23409,7 +23390,9 @@ const fastButton = Button$1.compose({
 
 const buttonStyles$1 = buttonStyles;
 
-const cardStyles = (context, definition) => css` ${display("block")} :host{--elevation: 4;display: block;contain: content;height: var(--card-height, 100%);width: var(--card-width, 100%);box-sizing: border-box;background: ${fillColor};border-radius: calc(${controlCornerRadius} * 1px);${elevation}}`.withBehaviors(forcedColorsStylesheetBehavior(css` :host{forced-color-adjust: none;background: ${SystemColors.Canvas};box-shadow: 0 0 0 1px ${SystemColors.CanvasText}}`));
+const cardStyles = (context, definition) => css`
+        ${display("block")} :host{--elevation:4;display:block;contain:content;height:var(--card-height,100%);width:var(--card-width,100%);box-sizing:border-box;background:${fillColor};border-radius:calc(${controlCornerRadius} * 1px);${elevation}}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+                :host{forced-color-adjust:none;background:${SystemColors.Canvas};box-shadow:0 0 0 1px ${SystemColors.CanvasText}}`));
 
 /**
  * @internal
@@ -23428,7 +23411,7 @@ class Card$1 extends Card {
 }
 /**
  * A function that returns a {@link @microsoft/fast-foundation#Card} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#CardTemplate}
+ * Implements {@link @microsoft/fast-foundation#cardTemplate}
  *
  *
  * @public
@@ -23448,14 +23431,9 @@ const fastCard = Card$1.compose({
 
 const cardStyles$1 = cardStyles;
 
-const checkboxStyles = (context, definition) => css` ${display("inline-flex")} :host{align-items: center;outline: none;margin: calc(${designUnit} * 1px) 0;${
-/*
- * Chromium likes to select label text or the default slot when
- * the checkbox is clicked. Maybe there is a better solution here?
- */
-""} user-select: none}.control{position: relative;width: calc((${heightNumber} / 2 + ${designUnit}) * 1px);height: calc((${heightNumber} / 2 + ${designUnit}) * 1px);box-sizing: border-box;border-radius: calc(${controlCornerRadius} * 1px);border: calc(${strokeWidth} * 1px) solid ${neutralStrokeRest};background: ${neutralFillInputRest};outline: none;cursor: pointer}.label{font-family: ${bodyFont};color: ${neutralForegroundRest};${
-/* Need to discuss with Brian how HorizontalSpacingNumber can work. https://github.com/microsoft/fast/issues/2766 */
-""} padding-inline-start: calc(${designUnit} * 2px + 2px);margin-inline-end: calc(${designUnit} * 2px + 2px);cursor: pointer;font-size: ${typeRampBaseFontSize};line-height: ${typeRampBaseLineHeight}}.label__hidden{display: none;visibility: hidden}.checked-indicator{width: 100%;height: 100%;display: block;fill: ${foregroundOnAccentRest};opacity: 0;pointer-events: none}.indeterminate-indicator{border-radius: calc(${controlCornerRadius} * 1px);background: ${foregroundOnAccentRest};position: absolute;top: 50%;left: 50%;width: 50%;height: 50%;transform: translate(-50%, -50%);opacity: 0}:host(:not([disabled])) .control:hover{background: ${neutralFillInputHover};border-color: ${neutralStrokeHover}}:host(:not([disabled])) .control:active{background: ${neutralFillInputActive};border-color: ${neutralStrokeActive}}:host(:${focusVisible}) .control{box-shadow: 0 0 0 2px ${fillColor}, 0 0 0 4px ${focusStrokeOuter$1}}:host([aria-checked="true"]) .control{background: ${accentFillRest};border: calc(${strokeWidth} * 1px) solid ${accentFillRest}}:host([aria-checked="true"]:not([disabled])) .control:hover{background: ${accentFillHover};border: calc(${strokeWidth} * 1px) solid ${accentFillHover}}:host([aria-checked="true"]:not([disabled])) .control:hover .checked-indicator{fill: ${foregroundOnAccentHover}}:host([aria-checked="true"]:not([disabled])) .control:hover .indeterminate-indicator{background: ${foregroundOnAccentHover}}:host([aria-checked="true"]:not([disabled])) .control:active{background: ${accentFillActive};border: calc(${strokeWidth} * 1px) solid ${accentFillActive}}:host([aria-checked="true"]:not([disabled])) .control:active .checked-indicator{fill: ${foregroundOnAccentActive}}:host([aria-checked="true"]:not([disabled])) .control:active .indeterminate-indicator{background: ${foregroundOnAccentActive}}:host([aria-checked="true"]:${focusVisible}:not([disabled])) .control{box-shadow: 0 0 0 2px ${fillColor}, 0 0 0 4px ${focusStrokeOuter$1}}:host([disabled]) .label, :host([readonly]) .label, :host([readonly]) .control, :host([disabled]) .control{cursor: ${disabledCursor}}:host([aria-checked="true"]:not(.indeterminate)) .checked-indicator, :host(.indeterminate) .indeterminate-indicator{opacity: 1}:host([disabled]){opacity: ${disabledOpacity}}`.withBehaviors(forcedColorsStylesheetBehavior(css` .control{forced-color-adjust: none;border-color: ${SystemColors.FieldText};background: ${SystemColors.Field}}.checked-indicator{fill: ${SystemColors.FieldText}}.indeterminate-indicator{background: ${SystemColors.FieldText}}:host(:not([disabled])) .control:hover, .control:active{border-color: ${SystemColors.Highlight};background: ${SystemColors.Field}}:host(:${focusVisible}) .control{box-shadow: 0 0 0 2px ${SystemColors.Field}, 0 0 0 4px ${SystemColors.FieldText}}:host([aria-checked="true"]:${focusVisible}:not([disabled])) .control{box-shadow: 0 0 0 2px ${SystemColors.Field}, 0 0 0 4px ${SystemColors.FieldText}}:host([aria-checked="true"]) .control{background: ${SystemColors.Highlight};border-color: ${SystemColors.Highlight}}:host([aria-checked="true"]:not([disabled])) .control:hover, .control:active{border-color: ${SystemColors.Highlight};background: ${SystemColors.HighlightText}}:host([aria-checked="true"]) .checked-indicator{fill: ${SystemColors.HighlightText}}:host([aria-checked="true"]:not([disabled])) .control:hover .checked-indicator{fill: ${SystemColors.Highlight}}:host([aria-checked="true"]) .indeterminate-indicator{background: ${SystemColors.HighlightText}}:host([aria-checked="true"]) .control:hover .indeterminate-indicator{background: ${SystemColors.Highlight}}:host([disabled]){opacity: 1}:host([disabled]) .control{forced-color-adjust: none;border-color: ${SystemColors.GrayText};background: ${SystemColors.Field}}:host([disabled]) .indeterminate-indicator, :host([aria-checked="true"][disabled]) .control:hover .indeterminate-indicator{forced-color-adjust: none;background: ${SystemColors.GrayText}}:host([disabled]) .checked-indicator, :host([aria-checked="true"][disabled]) .control:hover .checked-indicator{forced-color-adjust: none;fill: ${SystemColors.GrayText}}`));
+const checkboxStyles = (context, definition) => css`
+    ${display("inline-flex")} :host{align-items:center;outline:none;margin:calc(${designUnit} * 1px) 0;user-select:none}.control{position:relative;width:calc((${heightNumber} / 2 + ${designUnit}) * 1px);height:calc((${heightNumber} / 2 + ${designUnit}) * 1px);box-sizing:border-box;border-radius:calc(${controlCornerRadius} * 1px);border:calc(${strokeWidth} * 1px) solid ${neutralStrokeRest};background:${neutralFillInputRest};outline:none;cursor:pointer}.label{font-family:${bodyFont};color:${neutralForegroundRest};padding-inline-start:calc(${designUnit} * 2px + 2px);margin-inline-end:calc(${designUnit} * 2px + 2px);cursor:pointer;font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight}}.label__hidden{display:none;visibility:hidden}.checked-indicator{width:100%;height:100%;display:block;fill:${foregroundOnAccentRest};opacity:0;pointer-events:none}.indeterminate-indicator{border-radius:calc(${controlCornerRadius} * 1px);background:${foregroundOnAccentRest};position:absolute;top:50%;left:50%;width:50%;height:50%;transform:translate(-50%,-50%);opacity:0}:host(:not([disabled])) .control:hover{background:${neutralFillInputHover};border-color:${neutralStrokeHover}}:host(:not([disabled])) .control:active{background:${neutralFillInputActive};border-color:${neutralStrokeActive}}:host(:${focusVisible}) .control{box-shadow:0 0 0 2px ${fillColor},0 0 0 4px ${focusStrokeOuter$1}}:host([aria-checked="true"]) .control{background:${accentFillRest};border:calc(${strokeWidth} * 1px) solid ${accentFillRest}}:host([aria-checked="true"]:not([disabled])) .control:hover{background:${accentFillHover};border:calc(${strokeWidth} * 1px) solid ${accentFillHover}}:host([aria-checked="true"]:not([disabled])) .control:hover .checked-indicator{fill:${foregroundOnAccentHover}}:host([aria-checked="true"]:not([disabled])) .control:hover .indeterminate-indicator{background:${foregroundOnAccentHover}}:host([aria-checked="true"]:not([disabled])) .control:active{background:${accentFillActive};border:calc(${strokeWidth} * 1px) solid ${accentFillActive}}:host([aria-checked="true"]:not([disabled])) .control:active .checked-indicator{fill:${foregroundOnAccentActive}}:host([aria-checked="true"]:not([disabled])) .control:active .indeterminate-indicator{background:${foregroundOnAccentActive}}:host([aria-checked="true"]:${focusVisible}:not([disabled])) .control{box-shadow:0 0 0 2px ${fillColor},0 0 0 4px ${focusStrokeOuter$1}}:host([disabled]) .label,:host([readonly]) .label,:host([readonly]) .control,:host([disabled]) .control{cursor:${disabledCursor}}:host([aria-checked="true"]:not(.indeterminate)) .checked-indicator,:host(.indeterminate) .indeterminate-indicator{opacity:1}:host([disabled]){opacity:${disabledOpacity}}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+            .control{forced-color-adjust:none;border-color:${SystemColors.FieldText};background:${SystemColors.Field}}.checked-indicator{fill:${SystemColors.FieldText}}.indeterminate-indicator{background:${SystemColors.FieldText}}:host(:not([disabled])) .control:hover,.control:active{border-color:${SystemColors.Highlight};background:${SystemColors.Field}}:host(:${focusVisible}) .control{box-shadow:0 0 0 2px ${SystemColors.Field},0 0 0 4px ${SystemColors.FieldText}}:host([aria-checked="true"]:${focusVisible}:not([disabled])) .control{box-shadow:0 0 0 2px ${SystemColors.Field},0 0 0 4px ${SystemColors.FieldText}}:host([aria-checked="true"]) .control{background:${SystemColors.Highlight};border-color:${SystemColors.Highlight}}:host([aria-checked="true"]:not([disabled])) .control:hover,.control:active{border-color:${SystemColors.Highlight};background:${SystemColors.HighlightText}}:host([aria-checked="true"]) .checked-indicator{fill:${SystemColors.HighlightText}}:host([aria-checked="true"]:not([disabled])) .control:hover .checked-indicator{fill:${SystemColors.Highlight}}:host([aria-checked="true"]) .indeterminate-indicator{background:${SystemColors.HighlightText}}:host([aria-checked="true"]) .control:hover .indeterminate-indicator{background:${SystemColors.Highlight}}:host([disabled]){opacity:1}:host([disabled]) .control{forced-color-adjust:none;border-color:${SystemColors.GrayText};background:${SystemColors.Field}}:host([disabled]) .indeterminate-indicator,:host([aria-checked="true"][disabled]) .control:hover .indeterminate-indicator{forced-color-adjust:none;background:${SystemColors.GrayText}}:host([disabled]) .checked-indicator,:host([aria-checked="true"][disabled]) .control:hover .checked-indicator{forced-color-adjust:none;fill:${SystemColors.GrayText}}`));
 
 /**
  * A function that returns a {@link @microsoft/fast-foundation#Checkbox} registration for configuring the component with a DesignSystem.
@@ -23473,7 +23451,6 @@ const fastCheckbox = Checkbox.compose({
   styles: checkboxStyles,
   checkedIndicator: `
         <svg
-            aria-hidden="true"
             part="checked-indicator"
             class="checked-indicator"
             viewBox="0 0 20 20"
@@ -23497,11 +23474,15 @@ const fastCheckbox = Checkbox.compose({
 
 const checkboxStyles$1 = checkboxStyles;
 
-const selectStyles = (context, definition) => css` ${display("inline-flex")} :host{--elevation: 14;background: ${neutralFillInputRest};border-radius: calc(${controlCornerRadius} * 1px);border: calc(${strokeWidth} * 1px) solid ${accentFillRest};box-sizing: border-box;color: ${neutralForegroundRest};font-family: ${bodyFont};height: calc(${heightNumber} * 1px);position: relative;user-select: none;min-width: 250px;outline: none;vertical-align: top}.listbox{${elevation} background: ${neutralLayerFloating$1};border: calc(${strokeWidth} * 1px) solid ${neutralStrokeRest};border-radius: calc(${controlCornerRadius} * 1px);box-sizing: border-box;display: inline-flex;flex-direction: column;left: 0;max-height: calc(var(--max-height) - (${heightNumber} * 1px));padding: calc(${designUnit} * 1px) 0;overflow-y: auto;position: absolute;width: 100%;z-index: 1}.listbox[hidden]{display: none}.control{align-items: center;box-sizing: border-box;cursor: pointer;display: flex;font-size: ${typeRampBaseFontSize};font-family: inherit;line-height: ${typeRampBaseLineHeight};min-height: 100%;padding: 0 calc(${designUnit} * 2.25px);width: 100%}:host(:not([disabled]):hover){background: ${neutralFillInputHover};border-color: ${accentFillHover}}:host(:${focusVisible}){border-color: ${focusStrokeOuter$1};box-shadow: 0 0 0 calc(${focusStrokeWidth} * 1px) ${focusStrokeOuter$1}}:host(:${focusVisible}) ::slotted([aria-selected="true"][role="option"]:not([disabled])){box-shadow: 0 0 0 calc(${focusStrokeWidth} * 1px) inset ${focusStrokeInner$1};border-color: ${focusStrokeOuter$1};background: ${accentFillFocus};color: ${foregroundOnAccentFocus}}:host([disabled]){cursor: ${disabledCursor};opacity: ${disabledOpacity}}:host([disabled]) .control{cursor: ${disabledCursor};user-select: none}:host([disabled]:hover){background: ${neutralFillStealthRest};color: ${neutralForegroundRest};fill: currentcolor}:host(:not([disabled])) .control:active{background: ${neutralFillInputActive};border-color: ${accentFillActive}}:host([open][position="above"]) .listbox, :host([open][position="below"]) .control{border-bottom-left-radius: 0;border-bottom-right-radius: 0}:host([open][position="above"]) .control, :host([open][position="below"]) .listbox{border-top-left-radius: 0;border-top-right-radius: 0}:host([open][position="above"]) .listbox{border-bottom: 0;bottom: calc(${heightNumber} * 1px)}:host([open][position="below"]) .listbox{border-top: 0;top: calc(${heightNumber} * 1px)}.selected-value{flex: 1 1 auto;font-family: inherit;text-align: start;white-space: nowrap;text-overflow: ellipsis;overflow: hidden}.indicator{flex: 0 0 auto;margin-inline-start: 1em}slot[name="listbox"]{display: none;width: 100%}:host([open]) slot[name="listbox"]{display: flex;position: absolute;${elevation}}.end{margin-inline-start: auto}.start, .end, .indicator, .select-indicator, ::slotted(svg){${``
-/* Glyph size is temporary - replace when glyph-size var is added */
-} fill: currentcolor;height: 1em;min-height: calc(${designUnit} * 4px);min-width: calc(${designUnit} * 4px);width: 1em}::slotted([role="option"]), ::slotted(option){flex: 0 0 auto}`.withBehaviors(forcedColorsStylesheetBehavior(css` :host(:not([disabled]):hover), :host(:not([disabled]):active){border-color: ${SystemColors.Highlight}}:host(:not([disabled]):${focusVisible}){background-color: ${SystemColors.ButtonFace};box-shadow: 0 0 0 calc(${focusStrokeWidth} * 1px) ${SystemColors.Highlight};color: ${SystemColors.ButtonText};fill: currentcolor;forced-color-adjust: none}:host(:not([disabled]):${focusVisible}) .listbox{background: ${SystemColors.ButtonFace}}:host([disabled]){border-color: ${SystemColors.GrayText};background-color: ${SystemColors.ButtonFace};color: ${SystemColors.GrayText};fill: currentcolor;opacity: 1;forced-color-adjust: none}:host([disabled]:hover){background: ${SystemColors.ButtonFace}}:host([disabled]) .control{color: ${SystemColors.GrayText};border-color: ${SystemColors.GrayText}}:host([disabled]) .control .select-indicator{fill: ${SystemColors.GrayText}}:host(:${focusVisible}) ::slotted([aria-selected="true"][role="option"]), :host(:${focusVisible}) ::slotted(option[aria-selected="true"]), :host(:${focusVisible}) ::slotted([aria-selected="true"][role="option"]:not([disabled])){background: ${SystemColors.Highlight};border-color: ${SystemColors.ButtonText};box-shadow: 0 0 0 calc(${focusStrokeWidth} * 1px) inset ${SystemColors.HighlightText};color: ${SystemColors.HighlightText};fill: currentcolor}.start, .end, .indicator, .select-indicator, ::slotted(svg){color: ${SystemColors.ButtonText};fill: currentcolor}`));
+const selectStyles = (context, definition) => css`
+    ${display("inline-flex")} :host{--elevation:14;background:${neutralFillInputRest};border-radius:calc(${controlCornerRadius} * 1px);border:calc(${strokeWidth} * 1px) solid ${accentFillRest};box-sizing:border-box;color:${neutralForegroundRest};font-family:${bodyFont};height:calc(${heightNumber} * 1px);position:relative;user-select:none;min-width:250px;outline:none;vertical-align:top}.listbox{${elevation}
+        background:${neutralLayerFloating$1};border:calc(${strokeWidth} * 1px) solid ${neutralStrokeRest};border-radius:calc(${controlCornerRadius} * 1px);box-sizing:border-box;display:inline-flex;flex-direction:column;left:0;max-height:calc(var(--max-height) - (${heightNumber} * 1px));padding:calc(${designUnit} * 1px) 0;overflow-y:auto;position:absolute;width:100%;z-index:1}.listbox[hidden]{display:none}.control{align-items:center;box-sizing:border-box;cursor:pointer;display:flex;font-size:${typeRampBaseFontSize};font-family:inherit;line-height:${typeRampBaseLineHeight};min-height:100%;padding:0 calc(${designUnit} * 2.25px);width:100%}:host(:not([disabled]):hover){background:${neutralFillInputHover};border-color:${accentFillHover}}:host(:${focusVisible}){border-color:${focusStrokeOuter$1};box-shadow:0 0 0 calc(${focusStrokeWidth} * 1px) ${focusStrokeOuter$1}}:host(:${focusVisible}) ::slotted([aria-selected="true"][role="option"]:not([disabled])){box-shadow:0 0 0 calc(${focusStrokeWidth} * 1px) inset ${focusStrokeInner$1};border-color:${focusStrokeOuter$1};background:${accentFillFocus};color:${foregroundOnAccentFocus}}:host([disabled]){cursor:${disabledCursor};opacity:${disabledOpacity}}:host([disabled]) .control{cursor:${disabledCursor};user-select:none}:host([disabled]:hover){background:${neutralFillStealthRest};color:${neutralForegroundRest};fill:currentcolor}:host(:not([disabled])) .control:active{background:${neutralFillInputActive};border-color:${accentFillActive};border-radius:calc(${controlCornerRadius} * 1px)}:host([open][position="above"]) .listbox{border-bottom-left-radius:0;border-bottom-right-radius:0}:host([open][position="below"]) .listbox{border-top-left-radius:0;border-top-right-radius:0}:host([open][position="above"]) .listbox{border-bottom:0;bottom:calc(${heightNumber} * 1px)}:host([open][position="below"]) .listbox{border-top:0;top:calc(${heightNumber} * 1px)}.selected-value{flex:1 1 auto;font-family:inherit;text-align:start;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.indicator{flex:0 0 auto;margin-inline-start:1em}slot[name="listbox"]{display:none;width:100%}:host([open]) slot[name="listbox"]{display:flex;position:absolute;${elevation}}.end{margin-inline-start:auto}.start,.end,.indicator,.select-indicator,::slotted(svg){fill:currentcolor;height:1em;min-height:calc(${designUnit} * 4px);min-width:calc(${designUnit} * 4px);width:1em}::slotted([role="option"]),::slotted(option){flex:0 0 auto}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+            :host(:not([disabled]):hover),:host(:not([disabled]):active){border-color:${SystemColors.Highlight}}:host(:not([disabled]):${focusVisible}){background-color:${SystemColors.ButtonFace};box-shadow:0 0 0 calc(${focusStrokeWidth} * 1px) ${SystemColors.Highlight};color:${SystemColors.ButtonText};fill:currentcolor;forced-color-adjust:none}:host(:not([disabled]):${focusVisible}) .listbox{background:${SystemColors.ButtonFace}}:host([disabled]){border-color:${SystemColors.GrayText};background-color:${SystemColors.ButtonFace};color:${SystemColors.GrayText};fill:currentcolor;opacity:1;forced-color-adjust:none}:host([disabled]:hover){background:${SystemColors.ButtonFace}}:host([disabled]) .control{color:${SystemColors.GrayText};border-color:${SystemColors.GrayText}}:host([disabled]) .control .select-indicator{fill:${SystemColors.GrayText}}:host(:${focusVisible}) ::slotted([aria-selected="true"][role="option"]),:host(:${focusVisible}) ::slotted(option[aria-selected="true"]),:host(:${focusVisible}) ::slotted([aria-selected="true"][role="option"]:not([disabled])){background:${SystemColors.Highlight};border-color:${SystemColors.ButtonText};box-shadow:0 0 0 calc(${focusStrokeWidth} * 1px) inset ${SystemColors.HighlightText};color:${SystemColors.HighlightText};fill:currentcolor}.start,.end,.indicator,.select-indicator,::slotted(svg){color:${SystemColors.ButtonText};fill:currentcolor}`));
 
-const comboboxStyles = (context, definition) => css` ${selectStyles()} :host(:empty) .listbox{display: none}:host([disabled]) *, :host([disabled]){cursor: ${disabledCursor};user-select: none}.selected-value{-webkit-appearance: none;background: transparent;border: none;color: inherit;font-size: ${typeRampBaseFontSize};line-height: ${typeRampBaseLineHeight};height: calc(100% - (${strokeWidth} * 1px));margin: auto 0;width: 100%}.selected-value:hover, .selected-value:${focusVisible}, .selected-value:disabled, .selected-value:active{outline: none}`;
+const comboboxStyles = (context, definition) => css`
+    ${selectStyles()}
+
+    :host(:empty) .listbox{display:none}:host([disabled]) *,:host([disabled]){cursor:${disabledCursor};user-select:none}.selected-value{-webkit-appearance:none;background:transparent;border:none;color:inherit;font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight};height:calc(100% - (${strokeWidth} * 1px));margin:auto 0;width:100%}.selected-value:hover,.selected-value:${focusVisible},.selected-value:disabled,.selected-value:active{outline:none}`;
 
 /**
  * A function that returns a {@link @microsoft/fast-foundation#Combobox} registration for configuring the component with a DesignSystem.
@@ -23540,11 +23521,15 @@ const fastCombobox = Combobox.compose({
 
 const comboboxStyles$1 = comboboxStyles;
 
-const dataGridStyles = (context, definition) => css` :host{display: flex;position: relative;flex-direction: column}`;
+const dataGridStyles = (context, definition) => css`
+    :host{display:flex;position:relative;flex-direction:column}`;
 
-const dataGridRowStyles = (context, definition) => css` :host{display: grid;padding: 1px 0;box-sizing: border-box;width: 100%;border-bottom: calc(${strokeWidth} * 1px) solid ${neutralStrokeDividerRest}}:host(.header){}:host(.sticky-header){background: ${neutralFillRest};position: sticky;top: 0}`;
+const dataGridRowStyles = (context, definition) => css`
+    :host{display:grid;padding:1px 0;box-sizing:border-box;width:100%;border-bottom:calc(${strokeWidth} * 1px) solid ${neutralStrokeDividerRest}}:host(.header){}:host(.sticky-header){background:${neutralFillRest};position:sticky;top:0}`;
 
-const dataGridCellStyles = (context, definition) => css` :host{padding: calc(${designUnit} * 1px) calc(${designUnit} * 3px);color: ${neutralForegroundRest};box-sizing: border-box;font-family: ${bodyFont};font-size: ${typeRampBaseFontSize};line-height: ${typeRampBaseLineHeight};font-weight: 400;border: transparent calc(${strokeWidth} * 1px) solid;overflow: hidden;white-space: nowrap;border-radius: calc(${controlCornerRadius} * 1px)}:host(.column-header){font-weight: 600}:host(:${focusVisible}){border: ${focusStrokeOuter$1} calc(${strokeWidth} * 1px) solid;color: ${neutralForegroundRest}}`.withBehaviors(forcedColorsStylesheetBehavior(css` :host{forced-color-adjust: none;border-color: transparent;background: ${SystemColors.Field};color: ${SystemColors.FieldText}}:host(:${focusVisible}){border-color: ${SystemColors.FieldText};box-shadow: 0 0 0 2px inset ${SystemColors.Field};color: ${SystemColors.FieldText}}`));
+const dataGridCellStyles = (context, definition) => css`
+    :host{padding:calc(${designUnit} * 1px) calc(${designUnit} * 3px);color:${neutralForegroundRest};box-sizing:border-box;font-family:${bodyFont};font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight};font-weight:400;border:transparent calc(${strokeWidth} * 1px) solid;overflow:hidden;white-space:nowrap;border-radius:calc(${controlCornerRadius} * 1px)}:host(.column-header){font-weight:600}:host(:${focusVisible}){border:${focusStrokeOuter$1} calc(${strokeWidth} * 1px) solid;color:${neutralForegroundRest}}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+        :host{forced-color-adjust:none;border-color:transparent;background:${SystemColors.Field};color:${SystemColors.FieldText}}:host(:${focusVisible}){border-color:${SystemColors.FieldText};box-shadow:0 0 0 2px inset ${SystemColors.Field};color:${SystemColors.FieldText}}`));
 
 /**
  * A function that returns a {@link @microsoft/fast-foundation#DataGridCell} registration for configuring the component with a DesignSystem.
@@ -23604,1235 +23589,6 @@ const fastDataGrid = DataGrid.compose({
 
 const dataGridStyles$1 = dataGridStyles;
 
-const dialogStyles = (context, definition) => css` :host([hidden]){display: none}:host{--elevation: 14;--dialog-height: 480px;--dialog-width: 640px;display: block}.overlay{position: fixed;top: 0;left: 0;right: 0;bottom: 0;background: rgba(0, 0, 0, 0.3);touch-action: none}.positioning-region{display: flex;justify-content: center;position: fixed;top: 0;bottom: 0;left: 0;right: 0;overflow: auto}.control{${elevation} margin-top: auto;margin-bottom: auto;width: var(--dialog-width);height: var(--dialog-height);background-color: ${fillColor};z-index: 1;border-radius: calc(${controlCornerRadius} * 1px);border: calc(${strokeWidth} * 1px) solid transparent}`;
-
-/**
- * A function that returns a {@link @microsoft/fast-foundation#Dialog} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#dialogTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-dialog\>
- */
-
-const fastDialog = Dialog.compose({
-  baseName: "dialog",
-  template: dialogTemplate,
-  styles: dialogStyles
-});
-/**
- * Styles for Dialog
- * @public
- */
-
-const dialogStyles$1 = dialogStyles;
-
-const disclosureStyles = (context, definition) => css` .disclosure{transition: height 0.35s}.disclosure .invoker::-webkit-details-marker{display: none}.disclosure .invoker{list-style-type: none}:host([appearance="accent"]) .invoker{background: ${accentFillRest};color: ${foregroundOnAccentRest};font-family: ${bodyFont};font-size: ${typeRampBaseFontSize};border-radius: calc(${controlCornerRadius} * 1px);outline: none;cursor: pointer;margin: 16px 0;padding: 12px;max-width: max-content}:host([appearance="accent"]) .invoker:active{background: ${accentFillActive};color: ${foregroundOnAccentActive}}:host([appearance="accent"]) .invoker:hover{background: ${accentFillHover};color: ${foregroundOnAccentHover}}:host([appearance="lightweight"]) .invoker{background: transparent;color: ${accentForegroundRest};border-bottom: calc(${strokeWidth} * 1px) solid ${accentForegroundRest};cursor: pointer;width: max-content;margin: 16px 0}:host([appearance="lightweight"]) .invoker:active{border-bottom-color: ${accentForegroundActive}}:host([appearance="lightweight"]) .invoker:hover{border-bottom-color: ${accentForegroundHover}}.disclosure[open] .invoker ~ *{animation: fadeIn 0.5s ease-in-out}@keyframes fadeIn{0%{opacity: 0}100%{opacity: 1}}`;
-
-/**
- * @internal
- */
-
-class Disclosure$1 extends Disclosure {
-  appearanceChanged(oldValue, newValue) {
-    if (oldValue !== newValue) {
-      this.classList.add(newValue);
-      this.classList.remove(oldValue);
-    }
-  }
-  /**
-   * Set disclosure height while transitioning
-   * @override
-   */
-
-
-  onToggle() {
-    super.onToggle();
-    this.details.style.setProperty("height", `${this.disclosureHeight}px`);
-  }
-  /**
-   * Calculate disclosure height before and after expanded
-   * @override
-   */
-
-
-  setup() {
-    super.setup();
-
-    if (!this.appearance) {
-      this.appearance = "accent";
-    }
-
-    const getCurrentHeight = () => this.details.getBoundingClientRect().height;
-
-    this.show();
-    this.totalHeight = getCurrentHeight();
-    this.hide();
-    this.height = getCurrentHeight();
-
-    if (this.expanded) {
-      this.show();
-    }
-  }
-
-  get disclosureHeight() {
-    return this.expanded ? this.totalHeight : this.height;
-  }
-
-}
-
-__decorate$1([attr], Disclosure$1.prototype, "appearance", void 0);
-/**
- * Styles for Disclosure
- * @public
- */
-
-
-const disclosureStyles$1 = disclosureStyles;
-/**
- * A function that returns a {@link @microsoft/fast-foundation#Disclosure} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#disclosureTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-Disclosure\>
- *
- */
-
-const fastDisclosure = Disclosure$1.compose({
-  baseName: "disclosure",
-  template: disclosureTemplate,
-  styles: disclosureStyles
-});
-
-const dividerStyles = (context, definition) => css` ${display("block")} :host{box-sizing: content-box;height: 0;margin: calc(${designUnit} * 1px) 0;border: none;border-top: calc(${strokeWidth} * 1px) solid ${neutralStrokeDividerRest}}`;
-
-/**
- * A function that returns a {@link @microsoft/fast-foundation#Divider} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#dividerTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-divider\>
- */
-
-const fastDivider = Divider.compose({
-  baseName: "divider",
-  template: dividerTemplate,
-  styles: dividerStyles
-});
-/**
- * Styles for Divider
- * @public
- */
-
-const dividerStyles$1 = dividerStyles;
-
-const flipperStyles = (context, definition) => css` ${display("inline-flex")} :host{width: calc(${heightNumber} * 1px);height: calc(${heightNumber} * 1px);justify-content: center;align-items: center;margin: 0;position: relative;fill: currentcolor;color: ${foregroundOnAccentRest};background: transparent;outline: none;border: none;padding: 0}:host::before{content: "";background: ${accentFillRest};border: calc(${strokeWidth} * 1px) solid ${accentFillRest};border-radius: 50%;position: absolute;top: 0;right: 0;left: 0;bottom: 0;transition: all 0.1s ease-in-out}.next, .previous{position: relative;${
-/* Glyph size and display: grid are temporary -
-replace when adaptive typography is figured out */
-""} width: 16px;height: 16px;display: grid}:host([disabled]){opacity: ${disabledOpacity};cursor: ${disabledCursor};fill: currentcolor;color: ${neutralForegroundRest}}:host([disabled])::before, :host([disabled]:hover)::before, :host([disabled]:active)::before{background: ${neutralFillStealthRest};border-color: ${neutralStrokeRest}}:host(:hover){color: ${foregroundOnAccentHover}}:host(:hover)::before{background: ${accentFillHover};border-color: ${accentFillHover}}:host(:active){color: ${foregroundOnAccentActive}}:host(:active)::before{background: ${accentFillActive};border-color: ${accentFillActive}}:host(:${focusVisible}){outline: none}:host(:${focusVisible})::before{box-shadow: 0 0 0 calc((${focusStrokeWidth} - ${strokeWidth}) * 1px) ${focusStrokeOuter$1} inset, 0 0 0 calc((${focusStrokeWidth} + ${strokeWidth}) * 1px) ${focusStrokeInner$1} inset;border-color: ${focusStrokeOuter$1}}:host::-moz-focus-inner{border: 0}`.withBehaviors(forcedColorsStylesheetBehavior(css` :host{background: ${SystemColors.Canvas}}:host .next, :host .previous{color: ${SystemColors.ButtonText};fill: currentcolor}:host::before{background: ${SystemColors.Canvas};border-color: ${SystemColors.ButtonText}}:host(:hover)::before{forced-color-adjust: none;background: ${SystemColors.Highlight};border-color: ${SystemColors.ButtonText};opacity: 1}:host(:hover) .next, :host(:hover) .previous{forced-color-adjust: none;color: ${SystemColors.HighlightText};fill: currentcolor}:host([disabled]){opacity: 1}:host([disabled])::before, :host([disabled]:hover)::before, :host([disabled]) .next, :host([disabled]) .previous{forced-color-adjust: none;background: ${SystemColors.Canvas};border-color: ${SystemColors.GrayText};color: ${SystemColors.GrayText};fill: ${SystemColors.GrayText}}:host(:${focusVisible})::before{forced-color-adjust: none;border-color: ${SystemColors.Highlight};box-shadow: 0 0 0 calc((${focusStrokeWidth} - ${strokeWidth}) * 1px) ${SystemColors.Highlight} inset}`));
-
-/**
- * A function that returns a {@link @microsoft/fast-foundation#Flipper} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#flipperTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-flipper\>
- */
-
-const fastFlipper = Flipper.compose({
-  baseName: "flipper",
-  template: flipperTemplate,
-  styles: flipperStyles,
-  next: `
-        <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-            <path
-                d="M4.023 15.273L11.29 8 4.023.727l.704-.704L12.71 8l-7.984 7.977-.704-.704z"
-            />
-        </svg>
-    `,
-  previous: `
-        <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-            <path
-                d="M11.273 15.977L3.29 8 11.273.023l.704.704L4.71 8l7.266 7.273-.704.704z"
-            />
-        </svg>
-    `
-});
-/**
- * Styles for Flipper
- * @public
- */
-
-const flipperStyles$1 = flipperStyles;
-
-const ltrActionsStyles = css` .scroll-prev{right: auto;left: 0}.scroll.scroll-next::before, .scroll-next .scroll-action{left: auto;right: 0}.scroll.scroll-next::before{background: linear-gradient(to right, transparent, var(--scroll-fade-next))}.scroll-next .scroll-action{transform: translate(50%, -50%)}`;
-const rtlActionsStyles = css` .scroll.scroll-next{right: auto;left: 0}.scroll.scroll-next::before{background: linear-gradient(to right, var(--scroll-fade-next), transparent);left: auto;right: 0}.scroll.scroll-prev::before{background: linear-gradient(to right, transparent, var(--scroll-fade-previous))}.scroll-prev .scroll-action{left: auto;right: 0;transform: translate(50%, -50%)}`;
-/**
- * Styles used for the flipper container and gradient fade
- * @public
- */
-
-const ActionsStyles = css` .scroll-area{position: relative}div.scroll-view{overflow-x: hidden}.scroll{bottom: 0;pointer-events: none;position: absolute;right: 0;top: 0;user-select: none;width: 100px}.scroll.disabled{display: none}.scroll::before, .scroll-action{left: 0;position: absolute}.scroll::before{background: linear-gradient(to right, var(--scroll-fade-previous), transparent);content: "";display: block;height: 100%;width: 100%}.scroll-action{pointer-events: auto;right: auto;top: 50%;transform: translate(-50%, -50%)}`.withBehaviors(new DirectionalStyleSheetBehavior(ltrActionsStyles, rtlActionsStyles));
-/**
- * Styles handling the scroll container and content
- * @public
- */
-
-const horizontalScrollStyles = (context, definition) => css` ${display("block")} :host{--scroll-align: center;--scroll-item-spacing: 5px;contain: layout;position: relative}.scroll-view{overflow-x: auto;scrollbar-width: none}::-webkit-scrollbar{display: none}.content-container{align-items: var(--scroll-align);display: inline-flex;flex-wrap: nowrap;position: relative}.content-container ::slotted(*){margin-right: var(--scroll-item-spacing)}.content-container ::slotted(*:last-child){margin-right: 0}`;
-
-/**
- * @internal
- */
-
-class HorizontalScroll$1 extends HorizontalScroll {
-  /**
-   * @public
-   */
-  connectedCallback() {
-    super.connectedCallback();
-
-    if (this.view !== "mobile") {
-      this.$fastController.addStyles(ActionsStyles);
-    }
-  }
-
-}
-/**
- * A function that returns a {@link @microsoft/fast-foundation#HorizontalScroll} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#horizontalScrollTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-horizontal-scroll\>
- */
-
-const fastHorizontalScroll = HorizontalScroll$1.compose({
-  baseName: "horizontal-scroll",
-  template: horizontalScrollTemplate,
-  styles: horizontalScrollStyles,
-  nextFlipper: html`<fast-flipper @click="${x => x.scrollToNext()}" aria-hidden="${x => x.flippersHiddenFromAT}"></fast-flipper>`,
-  previousFlipper: html`<fast-flipper @click="${x => x.scrollToPrevious()}" direction="previous" aria-hidden="${x => x.flippersHiddenFromAT}"></fast-flipper>`
-});
-
-const optionStyles = (context, definition) => css` ${display("inline-flex")} :host{align-items: center;font-family: ${bodyFont};border-radius: calc(${controlCornerRadius} * 1px);border: calc(${focusStrokeWidth} * 1px) solid transparent;box-sizing: border-box;color: ${neutralForegroundRest};cursor: pointer;fill: currentcolor;font-size: ${typeRampBaseFontSize};height: calc(${heightNumber} * 1px);line-height: ${typeRampBaseLineHeight};margin: 0 calc(${designUnit} * 1px);outline: none;overflow: hidden;padding: 0 calc(${designUnit} * 2.25px);user-select: none;white-space: nowrap}:host(:${focusVisible}){box-shadow: 0 0 0 calc(${focusStrokeWidth} * 1px) inset ${focusStrokeInner$1};border-color: ${focusStrokeOuter$1};background: ${accentFillFocus};color: ${foregroundOnAccentFocus}}:host([aria-selected="true"]){background: ${accentFillRest};color: ${foregroundOnAccentRest}}:host(:hover){background: ${accentFillHover};color: ${foregroundOnAccentHover}}:host(:active){background: ${accentFillActive};color: ${foregroundOnAccentActive}}:host(:not([aria-selected="true"]):hover){background: ${neutralFillHover};color: ${neutralForegroundRest}}:host(:not([aria-selected="true"]):active){background: ${neutralFillHover};color: ${neutralForegroundRest}}:host([disabled]){cursor: ${disabledCursor};opacity: ${disabledOpacity}}:host([disabled]:hover){background-color: inherit}.content{grid-column-start: 2;justify-self: start;overflow: hidden;text-overflow: ellipsis}.start, .end, ::slotted(svg){display: flex}::slotted(svg){${
-/* Glyph size and margin-left is temporary - replace when adaptive typography is figured out */
-""} height: calc(${designUnit} * 4px);width: calc(${designUnit} * 4px)}::slotted([slot="end"]){margin-inline-start: 1ch}::slotted([slot="start"]){margin-inline-end: 1ch}`.withBehaviors(forcedColorsStylesheetBehavior(css` :host{border-color: transparent;forced-color-adjust: none;color: ${SystemColors.ButtonText};fill: currentcolor}:host(:not([aria-selected="true"]):hover), :host([aria-selected="true"]){background: ${SystemColors.Highlight};color: ${SystemColors.HighlightText}}:host([disabled]), :host([disabled]:not([aria-selected="true"]):hover){background: ${SystemColors.Canvas};color: ${SystemColors.GrayText};fill: currentcolor;opacity: 1}`));
-
-/**
- * A function that returns a {@link @microsoft/fast-foundation#ListboxOption} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#listboxOptionTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-option\>
- *
- */
-
-const fastOption = ListboxOption.compose({
-  baseName: "option",
-  template: listboxOptionTemplate,
-  styles: optionStyles
-});
-/**
- * Styles for Option
- * @public
- */
-
-const optionStyles$1 = optionStyles;
-
-const listboxStyles = (context, definition) => css` ${display("inline-flex")} :host{background: ${neutralLayerFloating$1};border: calc(${strokeWidth} * 1px) solid ${neutralStrokeRest};border-radius: calc(${controlCornerRadius} * 1px);box-sizing: border-box;flex-direction: column;padding: calc(${designUnit} * 1px) 0}:host(:focus-within:not([disabled])){border-color: ${focusStrokeOuter$1};box-shadow: 0 0 0 calc((${focusStrokeWidth} - ${strokeWidth}) * 1px) ${focusStrokeOuter$1} inset}`.withBehaviors(forcedColorsStylesheetBehavior(css` :host(:${focusVisible}) ::slotted([aria-selected="true"][role="option"]){background: ${SystemColors.Highlight};border-color: ${SystemColors.ButtonText};box-shadow: 0 0 0 calc(${focusStrokeWidth} * 1px) inset ${SystemColors.HighlightText};color: ${SystemColors.HighlightText};fill: currentcolor}:host(:${focusVisible}) ::slotted([aria-selected="true"][role="option"]){background: ${SystemColors.Highlight};border-color: ${SystemColors.ButtonText};box-shadow: 0 0 0 calc(${focusStrokeWidth} * 1px) inset ${SystemColors.HighlightText};color: ${SystemColors.HighlightText};fill: currentcolor}`));
-
-/**
- * A function that returns a {@link @microsoft/fast-foundation#Listbox} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#listboxTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-listbox\>
- *
- */
-
-const fastListbox = Listbox.compose({
-  baseName: "listbox",
-  template: listboxTemplate,
-  styles: listboxStyles
-});
-/**
- * Styles for Listbox
- * @public
- */
-
-const listboxStyles$1 = listboxStyles;
-
-const menuItemStyles = (context, definition) => css` ${display("grid")} :host{contain: layout;overflow: visible;font-family: ${bodyFont};outline: none;box-sizing: border-box;height: calc(${heightNumber} * 1px);grid-template-columns: minmax(42px, auto) 1fr minmax(42px, auto);grid-template-rows: auto;justify-items: center;align-items: center;padding: 0;margin: 0 calc(${designUnit} * 1px);white-space: nowrap;color: ${neutralForegroundRest};fill: currentcolor;cursor: pointer;font-size: ${typeRampBaseFontSize};line-height: ${typeRampBaseLineHeight};border-radius: calc(${controlCornerRadius} * 1px);border: calc(${focusStrokeWidth} * 1px) solid transparent}:host(.indent-0){grid-template-columns: auto 1fr minmax(42px, auto)}:host(.indent-0) .content{grid-column: 1;grid-row: 1;margin-inline-start: 10px}:host(.indent-2){grid-template-columns: minmax(42px, auto) minmax(42px, auto) 1fr minmax(42px, auto) minmax(42px, auto)}:host(.indent-2) .content{grid-column: 3;grid-row: 1;margin-inline-start: 10px}:host(.indent-2) .expand-collapse-glyph-container{grid-column: 5;grid-row: 1}:host(.indent-2) .start{grid-column: 2}:host(.indent-2) .end{grid-column: 4}:host(:${focusVisible}){border-color: ${focusStrokeOuter$1};background: ${neutralLayer3$1};color: ${neutralForegroundRest}}:host(:hover){background: ${neutralLayer3$1};color: ${neutralForegroundRest}}:host([aria-checked="true"]), :host(:active), :host(.expanded){background: ${neutralLayer2$1};color: ${neutralForegroundRest}}:host([disabled]){cursor: ${disabledCursor};opacity: ${disabledOpacity}}:host([disabled]:hover){color: ${neutralForegroundRest};fill: currentcolor;background: ${neutralFillStealthRest}}:host([disabled]:hover) .start, :host([disabled]:hover) .end, :host([disabled]:hover)::slotted(svg){fill: ${neutralForegroundRest}}.expand-collapse-glyph{${
-/* Glyph size is temporary -
-replace when glyph-size var is added */
-""} width: 16px;height: 16px;fill: currentcolor}.content{grid-column-start: 2;justify-self: start;overflow: hidden;text-overflow: ellipsis}.start, .end{display: flex;justify-content: center}::slotted(svg){${
-/* Glyph size and margin-left is temporary -
-replace when adaptive typography is figured out */
-""} width: 16px;height: 16px}:host(:hover) .start, :host(:hover) .end, :host(:hover)::slotted(svg), :host(:active) .start, :host(:active) .end, :host(:active)::slotted(svg){fill: ${neutralForegroundRest}}:host(.indent-1[aria-haspopup="menu"]), :host(.indent-1[role="menuitemcheckbox"]), :host(.indent-1[role="menuitemradio"]){display: grid;grid-template-columns: minmax(42px, auto) auto 1fr minmax(42px, auto) minmax(42px, auto);align-items: center;min-height: 32px}:host(.indent-2:not([aria-haspopup="menu"])) .end{grid-column: 5}:host .input-container, :host .expand-collapse-glyph-container{display: none}:host([aria-haspopup="menu"]) .expand-collapse-glyph-container, :host([role="menuitemcheckbox"]) .input-container, :host([role="menuitemradio"]) .input-container{display: grid;margin-inline-end: 10px}:host([aria-haspopup="menu"]) .content, :host([role="menuitemcheckbox"]) .content, :host([role="menuitemradio"]) .content{grid-column-start: 3}:host([aria-haspopup="menu"]) .end, :host([role="menuitemcheckbox"]) .end, :host([role="menuitemradio"]) .end{grid-column-start: 4}:host .expand-collapse, :host .checkbox, :host .radio{display: flex;align-items: center;justify-content: center;position: relative;width: 20px;height: 20px;box-sizing: border-box;outline: none;margin-inline-start: 10px}:host .checkbox, :host .radio{border: calc(${strokeWidth} * 1px) solid ${neutralForegroundRest}}:host([aria-checked="true"]) .checkbox, :host([aria-checked="true"]) .radio{background: ${accentFillRest};border-color: ${accentFillRest}}:host .checkbox{border-radius: calc(${controlCornerRadius} * 1px)}:host .radio{border-radius: 999px}:host .checkbox-indicator, :host .radio-indicator, :host .expand-collapse-indicator, ::slotted([slot="checkbox-indicator"]), ::slotted([slot="radio-indicator"]), ::slotted([slot="expand-collapse-indicator"]){display: none}::slotted([slot="end"]:not(svg)){margin-inline-end: 10px;color: ${neutralForegroundHint$1}}:host([aria-checked="true"]) .checkbox-indicator, :host([aria-checked="true"]) ::slotted([slot="checkbox-indicator"]){width: 100%;height: 100%;display: block;fill: ${neutralForegroundRest};pointer-events: none}:host([aria-checked="true"]) .radio-indicator{position: absolute;top: 4px;left: 4px;right: 4px;bottom: 4px;border-radius: 999px;display: block;background: ${neutralForegroundRest};pointer-events: none}:host([aria-checked="true"]) ::slotted([slot="radio-indicator"]){display: block;pointer-events: none}`.withBehaviors(forcedColorsStylesheetBehavior(css` :host{border-color: transparent;color: ${SystemColors.ButtonText};forced-color-adjust: none}:host(:hover){background: ${SystemColors.Highlight};color: ${SystemColors.HighlightText}}:host(:hover) .start, :host(:hover) .end, :host(:hover)::slotted(svg), :host(:active) .start, :host(:active) .end, :host(:active)::slotted(svg){fill: ${SystemColors.HighlightText}}:host(.expanded){background: ${SystemColors.Highlight};border-color: ${SystemColors.Highlight};color: ${SystemColors.HighlightText}}:host(:${focusVisible}){background: ${SystemColors.Highlight};border-color: ${SystemColors.ButtonText};box-shadow: 0 0 0 calc(${focusStrokeWidth} * 1px) inset ${SystemColors.HighlightText};color: ${SystemColors.HighlightText};fill: currentcolor}:host([disabled]), :host([disabled]:hover), :host([disabled]:hover) .start, :host([disabled]:hover) .end, :host([disabled]:hover)::slotted(svg){background: ${SystemColors.Canvas};color: ${SystemColors.GrayText};fill: currentcolor;opacity: 1}:host .expanded-toggle, :host .checkbox, :host .radio{border-color: ${SystemColors.ButtonText};background: ${SystemColors.HighlightText}}:host([checked="true"]) .checkbox, :host([checked="true"]) .radio{background: ${SystemColors.HighlightText};border-color: ${SystemColors.HighlightText}}:host(:hover) .expanded-toggle, :host(:hover) .checkbox, :host(:hover) .radio, :host(:${focusVisible}) .expanded-toggle, :host(:${focusVisible}) .checkbox, :host(:${focusVisible}) .radio, :host([checked="true"]:hover) .checkbox, :host([checked="true"]:hover) .radio, :host([checked="true"]:${focusVisible}) .checkbox, :host([checked="true"]:${focusVisible}) .radio{border-color: ${SystemColors.HighlightText}}:host([aria-checked="true"]){background: ${SystemColors.Highlight};color: ${SystemColors.HighlightText}}:host([aria-checked="true"]) .checkbox-indicator, :host([aria-checked="true"]) ::slotted([slot="checkbox-indicator"]), :host([aria-checked="true"]) ::slotted([slot="radio-indicator"]){fill: ${SystemColors.Highlight}}:host([aria-checked="true"]) .radio-indicator{background: ${SystemColors.Highlight}}::slotted([slot="end"]:not(svg)){color: ${SystemColors.ButtonText}}:host(:hover) ::slotted([slot="end"]:not(svg)), :host(:${focusVisible}) ::slotted([slot="end"]:not(svg)){color: ${SystemColors.HighlightText}}`), new DirectionalStyleSheetBehavior(css` .expand-collapse-glyph{transform: rotate(0deg)}`, css` .expand-collapse-glyph{transform: rotate(180deg)}`));
-
-/**
- * A function that returns a {@link @microsoft/fast-foundation#MenuItem} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#menuItemTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-menu-item\>
- */
-
-const fastMenuItem = MenuItem.compose({
-  baseName: "menu-item",
-  template: menuItemTemplate,
-  styles: menuItemStyles,
-  checkboxIndicator: `
-        <svg
-            aria-hidden="true"
-            part="checkbox-indicator"
-            class="checkbox-indicator"
-            viewBox="0 0 20 20"
-            xmlns="http://www.w3.org/2000/svg"
-        >
-            <path
-                fill-rule="evenodd"
-                clip-rule="evenodd"
-                d="M8.143 12.6697L15.235 4.5L16.8 5.90363L8.23812 15.7667L3.80005 11.2556L5.27591 9.7555L8.143 12.6697Z"
-            />
-        </svg>
-    `,
-  expandCollapseGlyph: `
-        <svg
-            viewBox="0 0 16 16"
-            xmlns="http://www.w3.org/2000/svg"
-            class="expand-collapse-glyph"
-            part="expand-collapse-glyph"
-        >
-            <path
-                d="M5.00001 12.3263C5.00124 12.5147 5.05566 12.699 5.15699 12.8578C5.25831 13.0167 5.40243 13.1437 5.57273 13.2242C5.74304 13.3047 5.9326 13.3354 6.11959 13.3128C6.30659 13.2902 6.4834 13.2152 6.62967 13.0965L10.8988 8.83532C11.0739 8.69473 11.2153 8.51658 11.3124 8.31402C11.4096 8.11146 11.46 7.88966 11.46 7.66499C11.46 7.44033 11.4096 7.21853 11.3124 7.01597C11.2153 6.81341 11.0739 6.63526 10.8988 6.49467L6.62967 2.22347C6.48274 2.10422 6.30501 2.02912 6.11712 2.00691C5.92923 1.9847 5.73889 2.01628 5.56823 2.09799C5.39757 2.17969 5.25358 2.30817 5.153 2.46849C5.05241 2.62882 4.99936 2.8144 5.00001 3.00369V12.3263Z"
-            />
-        </svg>
-    `,
-  radioIndicator: `
-        <span part="radio-indicator" class="radio-indicator"></span>
-    `
-});
-/**
- * Styles for MenuItem
- * @public
- */
-
-const menuItemStyles$1 = menuItemStyles;
-
-const menuStyles = (context, definition) => css` ${display("block")} :host{--elevation: 11;background: ${neutralLayerFloating$1};border: calc(${strokeWidth} * 1px) solid transparent;${elevation} margin: 0;border-radius: calc(${controlCornerRadius} * 1px);padding: calc(${designUnit} * 1px) 0;max-width: 368px;min-width: 64px}:host([slot="submenu"]){width: max-content;margin: 0 calc(${designUnit} * 1px)}::slotted(hr){box-sizing: content-box;height: 0;margin: 0;border: none;border-top: calc(${strokeWidth} * 1px) solid ${neutralStrokeDividerRest}}`.withBehaviors(forcedColorsStylesheetBehavior(css` :host{background: ${SystemColors.Canvas};border-color: ${SystemColors.CanvasText}}`));
-
-/**
- * A function that returns a {@link @microsoft/fast-foundation#Menu} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#menuTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-menu\>
- */
-
-const fastMenu = Menu.compose({
-  baseName: "menu",
-  template: menuTemplate,
-  styles: menuStyles
-});
-/**
- * Styles for Menu
- * @public
- */
-
-const menuStyles$1 = menuStyles;
-
-const numberFieldStyles = (context, definition) => css` ${display("inline-block")} :host{font-family: ${bodyFont};outline: none;user-select: none}.root{box-sizing: border-box;position: relative;display: flex;flex-direction: row;color: ${neutralForegroundRest};background: ${neutralFillInputRest};border-radius: calc(${controlCornerRadius} * 1px);border: calc(${strokeWidth} * 1px) solid ${accentFillRest};height: calc(${heightNumber} * 1px)}.control{-webkit-appearance: none;font: inherit;background: transparent;border: 0;color: inherit;height: calc(100% - 4px);width: 100%;margin-top: auto;margin-bottom: auto;border: none;padding: 0 calc(${designUnit} * 2px + 1px);font-size: ${typeRampBaseFontSize};line-height: ${typeRampBaseLineHeight}}.control:hover, .control:${focusVisible}, .control:disabled, .control:active{outline: none}.controls{opacity: 0}.label{display: block;color: ${neutralForegroundRest};cursor: pointer;font-size: ${typeRampBaseFontSize};line-height: ${typeRampBaseLineHeight};margin-bottom: 4px}.label__hidden{display: none;visibility: hidden}.start, .end{margin: auto;fill: currentcolor}.step-up-glyph, .step-down-glyph{display: block;padding: 4px 10px;cursor: pointer}.step-up-glyph:before, .step-down-glyph:before{content: '';display: block;border: solid transparent 6px}.step-up-glyph:before{border-bottom-color: ${neutralForegroundRest}}.step-down-glyph:before{border-top-color: ${neutralForegroundRest}}::slotted(svg){${
-/* Glyph size and margin-left is temporary -
-replace when adaptive typography is figured out */
-""} width: 16px;height: 16px}.start{margin-inline-start: 11px}.end{margin-inline-end: 11px}:host(:hover:not([disabled])) .root{background: ${neutralFillInputHover};border-color: ${accentFillHover}}:host(:active:not([disabled])) .root{background: ${neutralFillInputHover};border-color: ${accentFillActive}}:host(:focus-within:not([disabled])) .root{border-color: ${focusStrokeOuter$1};box-shadow: 0 0 0 1px ${focusStrokeOuter$1} inset}:host(:hover:not([disabled])) .controls, :host(:focus-within:not([disabled])) .controls{opacity: 1}:host([appearance="filled"]) .root{background: ${neutralFillRest}}:host([appearance="filled"]:hover:not([disabled])) .root{background: ${neutralFillHover}}:host([disabled]) .label, :host([readonly]) .label, :host([readonly]) .control, :host([disabled]) .control{cursor: ${disabledCursor}}:host([disabled]){opacity: ${disabledOpacity}}:host([disabled]) .control{border-color: ${neutralStrokeRest}}`.withBehaviors(forcedColorsStylesheetBehavior(css` .root, :host([appearance="filled"]) .root{forced-color-adjust: none;background: ${SystemColors.Field};border-color: ${SystemColors.FieldText}}:host(:hover:not([disabled])) .root, :host([appearance="filled"]:hover:not([disabled])) .root, :host([appearance="filled"]:hover) .root{background: ${SystemColors.Field};border-color: ${SystemColors.Highlight}}.start, .end{fill: currentcolor}:host([disabled]){opacity: 1}:host([disabled]) .root, :host([appearance="filled"]:hover[disabled]) .root{border-color: ${SystemColors.GrayText};background: ${SystemColors.Field}}:host(:focus-within:enabled) .root{border-color: ${SystemColors.Highlight};box-shadow: 0 0 0 1px ${SystemColors.Highlight} inset}input::placeholder{color: ${SystemColors.GrayText}}`));
-
-/**
- * @internal
- */
-
-class NumberField$1 extends NumberField {
-  /**
-   * @internal
-   */
-  connectedCallback() {
-    super.connectedCallback();
-
-    if (!this.appearance) {
-      this.appearance = "outline";
-    }
-  }
-
-}
-
-__decorate$1([attr], NumberField$1.prototype, "appearance", void 0);
-/**
- * Styles for NumberField
- * @public
- */
-
-
-const numberFieldStyles$1 = numberFieldStyles;
-/**
- * A function that returns a {@link @microsoft/fast-foundation#NumberField} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#numberFieldTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-number-field\>
- *
- * {@link https://developer.mozilla.org/en-US/docs/Web/API/ShadowRoot/delegatesFocus | delegatesFocus}
- */
-
-const fastNumberField = NumberField$1.compose({
-  baseName: "number-field",
-  styles: numberFieldStyles,
-  template: numberFieldTemplate,
-  shadowOptions: {
-    delegatesFocus: true
-  },
-  stepDownGlyph: `
-        <span class="step-down-glyph" part="step-down-glyph"></span>
-    `,
-  stepUpGlyph: `
-        <span class="step-up-glyph" part="step-up-glyph"></span>
-    `
-});
-
-const pickerStyles = (context, definition) => css` :host{}.region{z-index: 1000;overflow: hidden;display: flex}.loaded{opacity: 1;pointer-events: none}.loading-display, .no-options-display{background: ${neutralLayerFloating$1};width: 100%;height: 160px;display: flex;flex-direction: column;align-items: center;justify-items: center;padding: 8px}.loading-progress{width: 42px;height: 42px}.bottom{flex-direction: column}.top{flex-direction: column-reverse}`.withBehaviors(forcedColorsStylesheetBehavior(css``));
-
-const pickerMenuStyles = (context, definition) => css` :host{background: ${neutralLayerFloating$1};--elevation: 11;z-index: 1000;display: flex;width: 100%;max-height: 100%;min-height: 58px;flex-direction: column;overflow-y: auto;overflow-x: hidden;pointer-events: auto;border-radius: calc(${controlCornerRadius} * 1px);padding: calc(${designUnit} * 1px) 0;border: calc(${strokeWidth} * 1px) solid transparent;${elevation}}.suggestions-available-alert{height: 0;opacity: 0;overflow: hidden}`.withBehaviors(forcedColorsStylesheetBehavior(css` :host{background: ${SystemColors.Canvas};border-color: ${SystemColors.CanvasText}}`));
-
-const pickerMenuOptionStyles = (context, definition) => css`:host{display: flex;align-items: center;justify-items: center;font-family: ${bodyFont};border-radius: calc(${controlCornerRadius} * 1px);border: calc(${focusStrokeWidth} * 1px) solid transparent;box-sizing: border-box;color: ${neutralForegroundRest};cursor: pointer;fill: currentcolor;font-size: ${typeRampBaseFontSize};min-height: calc(${heightNumber} * 1px);line-height: ${typeRampBaseLineHeight};margin: 0 calc(${designUnit} * 1px);outline: none;overflow: hidden;padding: 0 calc(${designUnit} * 2.25px);user-select: none;white-space: nowrap}:host(:${focusVisible}[role="listitem"]){border-color: ${focusStrokeOuter$1};background: ${neutralLayer3$1};color: ${neutralForegroundRest}}:host(:hover){background: ${neutralLayer3$1};color: ${neutralForegroundRest}}:host([aria-selected="true"]){background: ${accentFillActive};color: ${foregroundOnAccentActive}}`.withBehaviors(forcedColorsStylesheetBehavior(css``));
-
-const pickerListStyles = (context, definition) => css` .picker-list{display: flex;flex-direction: row;column-gap: calc(${designUnit} * 1px);row-gap: calc(${designUnit} * 1px);flex-wrap: wrap;z-index: 1000}[role="combobox"]{min-width: 260px;width: auto;box-sizing: border-box;color: ${neutralForegroundRest};background: ${neutralFillInputRest};border-radius: calc(${controlCornerRadius} * 1px);border: calc(${strokeWidth} * 1px) solid ${accentFillRest};height: calc(${heightNumber} * 1px);font-family: ${bodyFont};outline: none;user-select: none;font-size: ${typeRampBaseFontSize};line-height: ${typeRampBaseLineHeight};padding: 0 calc(${designUnit} * 2px + 1px)}:active[role="combobox"]{background: ${neutralFillInputHover};border-color: ${accentFillActive}}::focus-within[role="combobox"]{border-color: ${focusStrokeOuter$1};box-shadow: 0 0 0 1px ${focusStrokeOuter$1} inset}`.withBehaviors(forcedColorsStylesheetBehavior(css` :hover[role="combobox"]{background: ${SystemColors.Field};border-color: ${SystemColors.Highlight}}:focus-within:enabled[role="combobox"]{border-color: ${SystemColors.Highlight};box-shadow: 0 0 0 1px ${SystemColors.Highlight} inset}input::placeholder{color: ${SystemColors.GrayText}}`));
-
-const pickerListItemStyles = (context, definition) => css`:host{min-width: 80px;display: flex;align-items: center;justify-items: center;font-family: ${bodyFont};border-radius: calc(${controlCornerRadius} * 1px);border: calc(${focusStrokeWidth} * 1px) solid transparent;box-sizing: border-box;color: ${neutralForegroundRest};cursor: pointer;fill: currentcolor;font-size: ${typeRampBaseFontSize};height: calc(${heightNumber} * 1px);line-height: ${typeRampBaseLineHeight};margin: 0 calc(${designUnit} * 1px);outline: none;overflow: hidden;padding: 0 calc(${designUnit} * 2.25px);user-select: none;white-space: nowrap}:host(:${focusVisible}){border-color: ${focusStrokeOuter$1};background: ${neutralLayer3$1};color: ${neutralForegroundRest}}:host(:hover){background: ${neutralLayer3$1};color: ${neutralForegroundRest}}:host([aria-selected="true"]){background: ${accentFillActive};color: ${foregroundOnAccentActive}}`.withBehaviors(forcedColorsStylesheetBehavior(css``));
-
-/**
- * The FAST  Picker Custom Element. Implements {@link @microsoft/fast-foundation#Picker},
- * {@link @microsoft/fast-foundation#PickerTemplate}
- *
- *
- * @public
- * @remarks
- * * Generates HTML Element: \<fast-picker\>
- */
-
-const fastPicker = Picker.compose({
-  baseName: "picker",
-  template: pickerTemplate,
-  styles: pickerStyles,
-  shadowOptions: {
-    delegatesFocus: true
-  }
-});
-/**
- * Styles for Picker
- * @public
- */
-
-const PickerStyles = pickerStyles;
-/**
- *
- *
- *
- * @public
- * @remarks
- * HTML Element: \<fast-picker-menu\>
- */
-
-const fastPickerMenu = PickerMenu.compose({
-  baseName: "picker-menu",
-  template: pickerMenuTemplate,
-  styles: pickerMenuStyles
-});
-class FASTPickerMenu extends PickerMenu {}
-/**
- * Styles for PickerMenu
- * @public
- */
-
-const PickerMenuStyles = pickerMenuStyles;
-/**
- *
- *
- *
- * @public
- * @remarks
- * HTML Element: \<fast-picker-menu-option\>
- */
-
-const fastPickerMenuOption = PickerMenuOption.compose({
-  baseName: "picker-menu-option",
-  template: pickerMenuOptionTemplate,
-  styles: pickerMenuOptionStyles
-});
-class FASTPickerMenuOption extends PickerMenuOption {}
-/**
- * Styles for PickerMenuOption
- * @public
- */
-
-const PickerMenuOptionStyles = pickerMenuOptionStyles;
-/**
- *
- *
- *
- * @public
- * @remarks
- * HTML Element: \<fast-picker-list\>
- *
- */
-
-const fastPickerList = PickerList.compose({
-  baseName: "picker-list",
-  template: pickerListTemplate,
-  styles: pickerListStyles,
-  shadowOptions: null
-});
-class FASTPickerList extends PickerList {}
-/**
- * Styles for PickerList
- * @public
- */
-
-const PickerListStyles = pickerListStyles;
-/**
- *
- *
- *
- * @public
- * @remarks
- * HTML Element: \<fast-picker-list-item\>
- */
-
-const fastPickerListItem = PickerListItem.compose({
-  baseName: "picker-list-item",
-  template: pickerListItemTemplate,
-  styles: pickerListItemStyles
-});
-class FASTPickerListItem extends PickerListItem {}
-/**
- * Styles for PickerListItem
- * @public
- */
-
-const PickerListItemStyles = pickerListItemStyles;
-
-const progressRingStyles = (context, definition) => css` ${display("flex")} :host{align-items: center;outline: none;height: calc(${heightNumber} * 1px);width: calc(${heightNumber} * 1px);margin: calc(${heightNumber} * 1px) 0}.progress{height: 100%;width: 100%}.background{stroke: ${neutralFillRest};fill: none;stroke-width: 2px}.determinate{stroke: ${accentForegroundRest};fill: none;stroke-width: 2px;stroke-linecap: round;transform-origin: 50% 50%;transform: rotate(-90deg);transition: all 0.2s ease-in-out}.indeterminate-indicator-1{stroke: ${accentForegroundRest};fill: none;stroke-width: 2px;stroke-linecap: round;transform-origin: 50% 50%;transform: rotate(-90deg);transition: all 0.2s ease-in-out;animation: spin-infinite 2s linear infinite}:host([paused]) .indeterminate-indicator-1{animation-play-state: paused;stroke: ${neutralFillRest}}:host([paused]) .determinate{stroke: ${neutralForegroundHint$1}}@keyframes spin-infinite{0%{stroke-dasharray: 0.01px 43.97px;transform: rotate(0deg)}50%{stroke-dasharray: 21.99px 21.99px;transform: rotate(450deg)}100%{stroke-dasharray: 0.01px 43.97px;transform: rotate(1080deg)}}`.withBehaviors(forcedColorsStylesheetBehavior(css` .indeterminate-indicator-1, .determinate{stroke: ${SystemColors.FieldText}}.background{stroke: ${SystemColors.Field}}:host([paused]) .indeterminate-indicator-1{stroke: ${SystemColors.Field}}:host([paused]) .determinate{stroke: ${SystemColors.GrayText}}`));
-
-/**
- * A function that returns a {@link @microsoft/fast-foundation#BaseProgress} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#progressRingTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-progress-ring\>
- */
-
-const fastProgressRing = BaseProgress.compose({
-  baseName: "progress-ring",
-  template: progressRingTemplate,
-  styles: progressRingStyles,
-  indeterminateIndicator: `
-        <svg class="progress" part="progress" viewBox="0 0 16 16">
-            <circle
-                class="background"
-                part="background"
-                cx="8px"
-                cy="8px"
-                r="7px"
-            ></circle>
-            <circle
-                class="indeterminate-indicator-1"
-                part="indeterminate-indicator-1"
-                cx="8px"
-                cy="8px"
-                r="7px"
-            ></circle>
-        </svg>
-    `
-});
-/**
- * Styles for ProgressRing
- * @public
- */
-
-const progressRingStyles$1 = progressRingStyles;
-
-const progressStyles = (context, definition) => css` ${display("flex")} :host{align-items: center;outline: none;height: calc(${designUnit} * 1px);margin: calc(${designUnit} * 1px) 0}.progress{background-color: ${neutralFillRest};border-radius: calc(${designUnit} * 1px);width: 100%;height: 100%;display: flex;align-items: center;position: relative}.determinate{background-color: ${accentForegroundRest};border-radius: calc(${designUnit} * 1px);height: 100%;transition: all 0.2s ease-in-out;display: flex}.indeterminate{height: 100%;border-radius: calc(${designUnit} * 1px);display: flex;width: 100%;position: relative;overflow: hidden}.indeterminate-indicator-1{position: absolute;opacity: 0;height: 100%;background-color: ${accentForegroundRest};border-radius: calc(${designUnit} * 1px);animation-timing-function: cubic-bezier(0.4, 0, 0.6, 1);width: 40%;animation: indeterminate-1 2s infinite}.indeterminate-indicator-2{position: absolute;opacity: 0;height: 100%;background-color: ${accentForegroundRest};border-radius: calc(${designUnit} * 1px);animation-timing-function: cubic-bezier(0.4, 0, 0.6, 1);width: 60%;animation: indeterminate-2 2s infinite}:host([paused]) .indeterminate-indicator-1, :host([paused]) .indeterminate-indicator-2{animation-play-state: paused;background-color: ${neutralFillRest}}:host([paused]) .determinate{background-color: ${neutralForegroundHint$1}}@keyframes indeterminate-1{0%{opacity: 1;transform: translateX(-100%)}70%{opacity: 1;transform: translateX(300%)}70.01%{opacity: 0}100%{opacity: 0;transform: translateX(300%)}}@keyframes indeterminate-2{0%{opacity: 0;transform: translateX(-150%)}29.99%{opacity: 0}30%{opacity: 1;transform: translateX(-150%)}100%{transform: translateX(166.66%);opacity: 1}}`.withBehaviors(forcedColorsStylesheetBehavior(css` .progress{forced-color-adjust: none;background-color: ${SystemColors.Field};box-shadow: 0 0 0 1px inset ${SystemColors.FieldText}}.determinate, .indeterminate-indicator-1, .indeterminate-indicator-2{forced-color-adjust: none;background-color: ${SystemColors.FieldText}}:host([paused]) .determinate, :host([paused]) .indeterminate-indicator-1, :host([paused]) .indeterminate-indicator-2{background-color: ${SystemColors.GrayText}}`));
-
-/**
- * A function that returns a {@link @microsoft/fast-foundation#BaseProgress} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#progressTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-progress\>
- */
-
-const fastProgress = BaseProgress.compose({
-  baseName: "progress",
-  template: progressTemplate,
-  styles: progressStyles,
-  indeterminateIndicator1: `
-        <span class="indeterminate-indicator-1" part="indeterminate-indicator-1"></span>
-    `,
-  indeterminateIndicator2: `
-        <span class="indeterminate-indicator-1" part="indeterminate-indicator-1"></span>
-    `
-});
-/**
- * Styles for Progress
- * @public
- */
-
-const progressStyles$1 = progressStyles;
-
-const radioGroupStyles = (context, definition) => css` ${display("flex")} :host{align-items: flex-start;margin: calc(${designUnit} * 1px) 0;flex-direction: column}.positioning-region{display: flex;flex-wrap: wrap}:host([orientation="vertical"]) .positioning-region{flex-direction: column}:host([orientation="horizontal"]) .positioning-region{flex-direction: row}`;
-
-/**
- * A function that returns a {@link @microsoft/fast-foundation#RadioGroup} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#radioGroupTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-radio-group\>
- */
-
-const fastRadioGroup = RadioGroup.compose({
-  baseName: "radio-group",
-  template: radioGroupTemplate,
-  styles: radioGroupStyles
-});
-/**
- * Styles for RadioGroup
- * @public
- */
-
-const radioGroupStyles$1 = radioGroupStyles;
-
-const radioStyles = (context, definition) => css` ${display("inline-flex")} :host{--input-size: calc((${heightNumber} / 2) + ${designUnit});align-items: center;outline: none;margin: calc(${designUnit} * 1px) 0;${
-/*
- * Chromium likes to select label text or the default slot when
- * the radio button is clicked. Maybe there is a better solution here?
- */
-""} user-select: none;position: relative;flex-direction: row;transition: all 0.2s ease-in-out}.control{position: relative;width: calc((${heightNumber} / 2 + ${designUnit}) * 1px);height: calc((${heightNumber} / 2 + ${designUnit}) * 1px);box-sizing: border-box;border-radius: 999px;border: calc(${strokeWidth} * 1px) solid ${neutralStrokeRest};background: ${neutralFillInputRest};outline: none;cursor: pointer}.label{font-family: ${bodyFont};color: ${neutralForegroundRest};${
-/* Need to discuss with Brian how HorizontalSpacingNumber can work. https://github.com/microsoft/fast/issues/2766 */
-""} padding-inline-start: calc(${designUnit} * 2px + 2px);margin-inline-end: calc(${designUnit} * 2px + 2px);cursor: pointer;font-size: ${typeRampBaseFontSize};line-height: ${typeRampBaseLineHeight}}.label__hidden{display: none;visibility: hidden}.control, .checked-indicator{flex-shrink: 0}.checked-indicator{position: absolute;top: 5px;left: 5px;right: 5px;bottom: 5px;border-radius: 999px;display: inline-block;background: ${foregroundOnAccentRest};fill: ${foregroundOnAccentRest};opacity: 0;pointer-events: none}:host(:not([disabled])) .control:hover{background: ${neutralFillInputHover};border-color: ${neutralStrokeHover}}:host(:not([disabled])) .control:active{background: ${neutralFillInputActive};border-color: ${neutralStrokeActive}}:host(:${focusVisible}) .control{box-shadow: 0 0 0 2px ${fillColor}, 0 0 0 4px ${focusStrokeOuter$1}}:host([aria-checked="true"]) .control{background: ${accentFillRest};border: calc(${strokeWidth} * 1px) solid ${accentFillRest}}:host([aria-checked="true"]:not([disabled])) .control:hover{background: ${accentFillHover};border: calc(${strokeWidth} * 1px) solid ${accentFillHover}}:host([aria-checked="true"]:not([disabled])) .control:hover .checked-indicator{background: ${foregroundOnAccentHover};fill: ${foregroundOnAccentHover}}:host([aria-checked="true"]:not([disabled])) .control:active{background: ${accentFillActive};border: calc(${strokeWidth} * 1px) solid ${accentFillActive}}:host([aria-checked="true"]:not([disabled])) .control:active .checked-indicator{background: ${foregroundOnAccentActive};fill: ${foregroundOnAccentActive}}:host([aria-checked="true"]:${focusVisible}:not([disabled])) .control{box-shadow: 0 0 0 2px ${fillColor}, 0 0 0 4px ${focusStrokeOuter$1}}:host([disabled]) .label, :host([readonly]) .label, :host([readonly]) .control, :host([disabled]) .control{cursor: ${disabledCursor}}:host([aria-checked="true"]) .checked-indicator{opacity: 1}:host([disabled]){opacity: ${disabledOpacity}}`.withBehaviors(forcedColorsStylesheetBehavior(css` .control, :host([aria-checked="true"]:not([disabled])) .control{forced-color-adjust: none;border-color: ${SystemColors.FieldText};background: ${SystemColors.Field}}:host(:not([disabled])) .control:hover{border-color: ${SystemColors.Highlight};background: ${SystemColors.Field}}:host([aria-checked="true"]:not([disabled])) .control:hover, :host([aria-checked="true"]:not([disabled])) .control:active{border-color: ${SystemColors.Highlight};background: ${SystemColors.Highlight}}:host([aria-checked="true"]) .checked-indicator{background: ${SystemColors.Highlight};fill: ${SystemColors.Highlight}}:host([aria-checked="true"]:not([disabled])) .control:hover .checked-indicator, :host([aria-checked="true"]:not([disabled])) .control:active .checked-indicator{background: ${SystemColors.HighlightText};fill: ${SystemColors.HighlightText}}:host(:${focusVisible}) .control{border-color: ${SystemColors.Highlight};box-shadow: 0 0 0 2px ${SystemColors.Field}, 0 0 0 4px ${SystemColors.FieldText}}:host([aria-checked="true"]:${focusVisible}:not([disabled])) .control{border-color: ${SystemColors.Highlight};box-shadow: 0 0 0 2px ${SystemColors.Field}, 0 0 0 4px ${SystemColors.FieldText}}:host([disabled]){forced-color-adjust: none;opacity: 1}:host([disabled]) .label{color: ${SystemColors.GrayText}}:host([disabled]) .control, :host([aria-checked="true"][disabled]) .control:hover, .control:active{background: ${SystemColors.Field};border-color: ${SystemColors.GrayText}}:host([disabled]) .checked-indicator, :host([aria-checked="true"][disabled]) .control:hover .checked-indicator{fill: ${SystemColors.GrayText};background: ${SystemColors.GrayText}}`));
-
-/**
- * A function that returns a {@link @microsoft/fast-foundation#Radio} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#radioTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-radio\>
- */
-
-const fastRadio = Radio.compose({
-  baseName: "radio",
-  template: radioTemplate,
-  styles: radioStyles,
-  checkedIndicator: `
-        <div part="checked-indicator" class="checked-indicator"></div>
-    `
-});
-/**
- * Styles for Radio
- * @public
- */
-
-const radioStyles$1 = radioStyles;
-
-/**
- * A function that returns a {@link @microsoft/fast-foundation#Select} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#selectTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-select\>
- *
- */
-
-const fastSelect = Select.compose({
-  baseName: "select",
-  template: selectTemplate,
-  styles: selectStyles,
-  indicator: `
-        <svg
-            class="select-indicator"
-            part="select-indicator"
-            viewBox="0 0 12 7"
-            xmlns="http://www.w3.org/2000/svg"
-        >
-            <path
-                d="M11.85.65c.2.2.2.5 0 .7L6.4 6.84a.55.55 0 01-.78 0L.14 1.35a.5.5 0 11.71-.7L6 5.8 11.15.65c.2-.2.5-.2.7 0z"
-            />
-        </svg>
-    `
-});
-/**
- * Styles for Select
- * @public
- */
-
-const selectStyles$1 = selectStyles;
-
-const skeletonStyles = (context, definition) => css` ${display("block")} :host{--skeleton-fill-default: #e1dfdd;overflow: hidden;width: 100%;position: relative;background-color: var(--skeleton-fill, var(--skeleton-fill-default));--skeleton-animation-gradient-default: linear-gradient( 270deg, var(--skeleton-fill, var(--skeleton-fill-default)) 0%, #f3f2f1 51.13%, var(--skeleton-fill, var(--skeleton-fill-default)) 100% );--skeleton-animation-timing-default: ease-in-out}:host([shape="rect"]){border-radius: calc(${controlCornerRadius} * 1px)}:host([shape="circle"]){border-radius: 100%;overflow: hidden}object{position: absolute;width: 100%;height: auto;z-index: 2}object img{width: 100%;height: auto}${display("block")} span.shimmer{position: absolute;width: 100%;height: 100%;background-image: var( --skeleton-animation-gradient, var(--skeleton-animation-gradient-default) );background-size: 0px 0px / 90% 100%;background-repeat: no-repeat;background-color: var(--skeleton-animation-fill, ${neutralFillRest});animation: shimmer 2s infinite;animation-timing-function: var( --skeleton-animation-timing, var(--skeleton-timing-default) );animation-direction: normal;z-index: 1}::slotted(svg){z-index: 2}::slotted(.pattern){width: 100%;height: 100%}@keyframes shimmer{0%{transform: translateX(-100%)}100%{transform: translateX(100%)}}`.withBehaviors(forcedColorsStylesheetBehavior(css` :host{forced-color-adjust: none;background-color: ${SystemColors.ButtonFace};box-shadow: 0 0 0 1px ${SystemColors.ButtonText}}${display("block")} span.shimmer{display: none}`));
-
-/**
- * A function that returns a {@link @microsoft/fast-foundation#Skeleton} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#skeletonTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-skeleton\>
- */
-
-const fastSkeleton = Skeleton.compose({
-  baseName: "skeleton",
-  template: skeletonTemplate,
-  styles: skeletonStyles
-});
-/**
- * Styles for Skeleton
- * @public
- */
-
-const skeletonStyles$1 = skeletonStyles;
-
-const horizontalSliderStyles = css` :host{align-self: start;grid-row: 2;margin-top: -2px;height: calc((${heightNumber} / 2 + ${designUnit}) * 1px);width: auto}.container{grid-template-rows: auto auto;grid-template-columns: 0}.label{margin: 2px 0}`;
-const verticalSliderStyles = css` :host{justify-self: start;grid-column: 2;margin-left: 2px;height: auto;width: calc((${heightNumber} / 2 + ${designUnit}) * 1px)}.container{grid-template-columns: auto auto;grid-template-rows: 0;min-width: calc(var(--thumb-size) * 1px);height: calc(var(--thumb-size) * 1px)}.mark{transform: rotate(90deg);align-self: center}.label{margin-left: calc((${designUnit} / 2) * 3px);align-self: center}`;
-const sliderLabelStyles = (context, definition) => css` ${display("block")} :host{font-family: ${bodyFont};color: ${neutralForegroundRest};fill: currentcolor}.root{position: absolute;display: grid}.container{display: grid;justify-self: center}.label{justify-self: center;align-self: center;white-space: nowrap;max-width: 30px}.mark{width: calc((${designUnit} / 4) * 1px);height: calc(${heightNumber} * 0.25 * 1px);background: ${neutralStrokeRest};justify-self: center}:host(.disabled){opacity: ${disabledOpacity}}`.withBehaviors(forcedColorsStylesheetBehavior(css` .mark{forced-color-adjust: none;background: ${SystemColors.FieldText}}:host(.disabled){forced-color-adjust: none;opacity: 1}:host(.disabled) .label{color: ${SystemColors.GrayText}}:host(.disabled) .mark{background: ${SystemColors.GrayText}}`));
-
-/**
- * @internal
- */
-
-class SliderLabel$1 extends SliderLabel {
-  sliderOrientationChanged() {
-    if (this.sliderOrientation === Orientation.horizontal) {
-      this.$fastController.addStyles(horizontalSliderStyles);
-      this.$fastController.removeStyles(verticalSliderStyles);
-    } else {
-      this.$fastController.addStyles(verticalSliderStyles);
-      this.$fastController.removeStyles(horizontalSliderStyles);
-    }
-  }
-
-}
-/**
- * A function that returns a {@link @microsoft/fast-foundation#SliderLabel} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#sliderLabelTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-slider-label\>
- */
-
-const fastSliderLabel = SliderLabel$1.compose({
-  baseName: "slider-label",
-  template: sliderLabelTemplate,
-  styles: sliderLabelStyles
-});
-/**
- * Styles for SliderLabel
- * @public
- */
-
-const sliderLabelStyles$1 = sliderLabelStyles;
-
-const sliderStyles = (context, definition) => css` :host([hidden]){display: none}${display("inline-grid")} :host{--thumb-size: calc(${heightNumber} * 0.5 - ${designUnit});--thumb-translate: calc(var(--thumb-size) * 0.5);--track-overhang: calc((${designUnit} / 2) * -1);--track-width: ${designUnit};--fast-slider-height: calc(var(--thumb-size) * 10);align-items: center;width: 100%;margin: calc(${designUnit} * 1px) 0;user-select: none;box-sizing: border-box;border-radius: calc(${controlCornerRadius} * 1px);outline: none;cursor: pointer}:host([orientation="horizontal"]) .positioning-region{position: relative;margin: 0 8px;display: grid;grid-template-rows: calc(var(--thumb-size) * 1px) 1fr}:host([orientation="vertical"]) .positioning-region{position: relative;margin: 0 8px;display: grid;height: 100%;grid-template-columns: calc(var(--thumb-size) * 1px) 1fr}:host(:${focusVisible}) .thumb-cursor{box-shadow: 0 0 0 2px ${fillColor}, 0 0 0 4px ${focusStrokeOuter$1}}.thumb-container{position: absolute;height: calc(var(--thumb-size) * 1px);width: calc(var(--thumb-size) * 1px);transition: all 0.2s ease;color: ${neutralForegroundRest};fill: currentcolor}.thumb-cursor{border: none;width: calc(var(--thumb-size) * 1px);height: calc(var(--thumb-size) * 1px);background: ${neutralForegroundRest};border-radius: calc(${controlCornerRadius} * 1px)}.thumb-cursor:hover{background: ${neutralForegroundRest};border-color: ${neutralStrokeHover}}.thumb-cursor:active{background: ${neutralForegroundRest}}:host([orientation="horizontal"]) .thumb-container{transform: translateX(calc(var(--thumb-translate) * 1px))}:host([orientation="vertical"]) .thumb-container{transform: translateY(calc(var(--thumb-translate) * 1px))}:host([orientation="horizontal"]){min-width: calc(var(--thumb-size) * 1px)}:host([orientation="horizontal"]) .track{right: calc(var(--track-overhang) * 1px);left: calc(var(--track-overhang) * 1px);align-self: start;margin-top: calc((${designUnit} + calc(${density} + 2)) * 1px);height: calc(var(--track-width) * 1px)}:host([orientation="vertical"]) .track{top: calc(var(--track-overhang) * 1px);bottom: calc(var(--track-overhang) * 1px);width: calc(var(--track-width) * 1px);margin-inline-start: calc((${designUnit} + calc(${density} + 2)) * 1px);height: 100%}.track{background: ${neutralStrokeRest};position: absolute;border-radius: calc(${controlCornerRadius} * 1px)}:host([orientation="vertical"]){height: calc(var(--fast-slider-height) * 1px);min-height: calc(var(--thumb-size) * 1px);min-width: calc(${designUnit} * 20px)}:host([disabled]), :host([readonly]){cursor: ${disabledCursor}}:host([disabled]){opacity: ${disabledOpacity}}`.withBehaviors(forcedColorsStylesheetBehavior(css` .thumb-cursor{forced-color-adjust: none;border-color: ${SystemColors.FieldText};background: ${SystemColors.FieldText}}.thumb-cursor:hover, .thumb-cursor:active{background: ${SystemColors.Highlight}}.track{forced-color-adjust: none;background: ${SystemColors.FieldText}}:host(:${focusVisible}) .thumb-cursor{border-color: ${SystemColors.Highlight}}:host([disabled]){opacity: 1}:host([disabled]) .track, :host([disabled]) .thumb-cursor{forced-color-adjust: none;background: ${SystemColors.GrayText}}:host(:${focusVisible}) .thumb-cursor{background: ${SystemColors.Highlight};border-color: ${SystemColors.Highlight};box-shadow: 0 0 0 2px ${SystemColors.Field}, 0 0 0 4px ${SystemColors.FieldText}}`));
-
-/**
- * A function that returns a {@link @microsoft/fast-foundation#Slider} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#sliderTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-slider\>
- */
-
-const fastSlider = Slider.compose({
-  baseName: "slider",
-  template: sliderTemplate,
-  styles: sliderStyles,
-  thumb: `
-        <div class="thumb-cursor"></div>
-    `
-});
-/**
- * Styles for Slider
- * @public
- */
-
-const sliderStyles$1 = sliderStyles;
-
-const switchStyles = (context, definition) => css` :host([hidden]){display: none}${display("inline-flex")} :host{align-items: center;outline: none;font-family: ${bodyFont};margin: calc(${designUnit} * 1px) 0;${
-/*
- * Chromium likes to select label text or the default slot when
- * the checkbox is clicked. Maybe there is a better solution here?
- */
-""} user-select: none}:host([disabled]){opacity: ${disabledOpacity}}:host([disabled]) .label, :host([readonly]) .label, :host([readonly]) .switch, :host([disabled]) .switch{cursor: ${disabledCursor}}.switch{position: relative;outline: none;box-sizing: border-box;width: calc(${heightNumber} * 1px);height: calc((${heightNumber} / 2 + ${designUnit}) * 1px);background: ${neutralFillInputRest};border-radius: calc(${controlCornerRadius} * 1px);border: calc(${strokeWidth} * 1px) solid ${neutralStrokeRest}}.switch:hover{background: ${neutralFillInputHover};border-color: ${neutralStrokeHover};cursor: pointer}host([disabled]) .switch:hover, host([readonly]) .switch:hover{background: ${neutralFillInputHover};border-color: ${neutralStrokeHover};cursor: ${disabledCursor}}:host(:not([disabled])) .switch:active{background: ${neutralFillInputActive};border-color: ${neutralStrokeActive}}:host(:${focusVisible}) .switch{box-shadow: 0 0 0 2px ${fillColor}, 0 0 0 4px ${focusStrokeOuter$1}}.checked-indicator{position: absolute;top: 5px;bottom: 5px;background: ${neutralForegroundRest};border-radius: calc(${controlCornerRadius} * 1px);transition: all 0.2s ease-in-out}.status-message{color: ${neutralForegroundRest};cursor: pointer;font-size: ${typeRampBaseFontSize};line-height: ${typeRampBaseLineHeight}}:host([disabled]) .status-message, :host([readonly]) .status-message{cursor: ${disabledCursor}}.label{color: ${neutralForegroundRest};${
-/* Need to discuss with Brian how HorizontalSpacingNumber can work. https://github.com/microsoft/fast/issues/2766 */
-""} margin-inline-end: calc(${designUnit} * 2px + 2px);font-size: ${typeRampBaseFontSize};line-height: ${typeRampBaseLineHeight};cursor: pointer}.label__hidden{display: none;visibility: hidden}::slotted(*){${
-/* Need to discuss with Brian how HorizontalSpacingNumber can work. https://github.com/microsoft/fast/issues/2766 */
-""} margin-inline-start: calc(${designUnit} * 2px + 2px)}:host([aria-checked="true"]) .checked-indicator{background: ${foregroundOnAccentRest}}:host([aria-checked="true"]) .switch{background: ${accentFillRest};border-color: ${accentFillRest}}:host([aria-checked="true"]:not([disabled])) .switch:hover{background: ${accentFillHover};border-color: ${accentFillHover}}:host([aria-checked="true"]:not([disabled])) .switch:hover .checked-indicator{background: ${foregroundOnAccentHover}}:host([aria-checked="true"]:not([disabled])) .switch:active{background: ${accentFillActive};border-color: ${accentFillActive}}:host([aria-checked="true"]:not([disabled])) .switch:active .checked-indicator{background: ${foregroundOnAccentActive}}:host([aria-checked="true"]:${focusVisible}:not([disabled])) .switch{box-shadow: 0 0 0 2px ${fillColor}, 0 0 0 4px ${focusStrokeOuter$1}}.unchecked-message{display: block}.checked-message{display: none}:host([aria-checked="true"]) .unchecked-message{display: none}:host([aria-checked="true"]) .checked-message{display: block}`.withBehaviors(forcedColorsStylesheetBehavior(css` .checked-indicator, :host(:not([disabled])) .switch:active .checked-indicator{forced-color-adjust: none;background: ${SystemColors.FieldText}}.switch{forced-color-adjust: none;background: ${SystemColors.Field};border-color: ${SystemColors.FieldText}}:host(:not([disabled])) .switch:hover{background: ${SystemColors.HighlightText};border-color: ${SystemColors.Highlight}}:host([aria-checked="true"]) .switch{background: ${SystemColors.Highlight};border-color: ${SystemColors.Highlight}}:host([aria-checked="true"]:not([disabled])) .switch:hover, :host(:not([disabled])) .switch:active{background: ${SystemColors.HighlightText};border-color: ${SystemColors.Highlight}}:host([aria-checked="true"]) .checked-indicator{background: ${SystemColors.HighlightText}}:host([aria-checked="true"]:not([disabled])) .switch:hover .checked-indicator{background: ${SystemColors.Highlight}}:host([disabled]){opacity: 1}:host(:${focusVisible}) .switch{border-color: ${SystemColors.Highlight};box-shadow: 0 0 0 2px ${SystemColors.Field}, 0 0 0 4px ${SystemColors.FieldText}}:host([aria-checked="true"]:${focusVisible}:not([disabled])) .switch{box-shadow: 0 0 0 2px ${SystemColors.Field}, 0 0 0 4px ${SystemColors.FieldText}}:host([disabled]) .checked-indicator{background: ${SystemColors.GrayText}}:host([disabled]) .switch{background: ${SystemColors.Field};border-color: ${SystemColors.GrayText}}`), new DirectionalStyleSheetBehavior(css` .checked-indicator{left: 5px;right: calc(((${heightNumber} / 2) + 1) * 1px)}:host([aria-checked="true"]) .checked-indicator{left: calc(((${heightNumber} / 2) + 1) * 1px);right: 5px}`, css` .checked-indicator{right: 5px;left: calc(((${heightNumber} / 2) + 1) * 1px)}:host([aria-checked="true"]) .checked-indicator{right: calc(((${heightNumber} / 2) + 1) * 1px);left: 5px}`));
-
-/**
- * A function that returns a {@link @microsoft/fast-foundation#Switch} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#switchTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-switch\>
- */
-
-const fastSwitch = Switch.compose({
-  baseName: "switch",
-  template: switchTemplate,
-  styles: switchStyles,
-  switch: `
-        <span class="checked-indicator" part="checked-indicator"></span>
-    `
-});
-/**
- * Styles for Switch
- * @public
- */
-
-const switchStyles$1 = switchStyles;
-
-const tabsStyles = (context, definition) => css` ${display("grid")} :host{box-sizing: border-box;font-family: ${bodyFont};font-size: ${typeRampBaseFontSize};line-height: ${typeRampBaseLineHeight};color: ${neutralForegroundRest};grid-template-columns: auto 1fr auto;grid-template-rows: auto 1fr}.tablist{display: grid;grid-template-rows: auto auto;grid-template-columns: auto;position: relative;width: max-content;align-self: end;padding: calc(${designUnit} * 4px) calc(${designUnit} * 4px) 0;box-sizing: border-box}.start, .end{align-self: center}.activeIndicator{grid-row: 2;grid-column: 1;width: 100%;height: 5px;justify-self: center;background: ${accentFillRest};margin-top: 10px;border-radius: calc(${controlCornerRadius} * 1px) calc(${controlCornerRadius} * 1px) 0 0}.activeIndicatorTransition{transition: transform 0.2s ease-in-out}.tabpanel{grid-row: 2;grid-column-start: 1;grid-column-end: 4;position: relative}:host([orientation="vertical"]){grid-template-rows: auto 1fr auto;grid-template-columns: auto 1fr}:host([orientation="vertical"]) .tablist{grid-row-start: 2;grid-row-end: 2;display: grid;grid-template-rows: auto;grid-template-columns: auto 1fr;position: relative;width: max-content;justify-self: end;width: 100%;padding: calc((${heightNumber} - ${designUnit}) * 1px) calc(${designUnit} * 4px) calc((${heightNumber} - ${designUnit}) * 1px) 0}:host([orientation="vertical"]) .tabpanel{grid-column: 2;grid-row-start: 1;grid-row-end: 4}:host([orientation="vertical"]) .end{grid-row: 3}:host([orientation="vertical"]) .activeIndicator{grid-column: 1;grid-row: 1;width: 5px;height: 100%;margin-inline-end: 10px;align-self: center;background: ${accentFillRest};margin-top: 0;border-radius: 0 calc(${controlCornerRadius} * 1px) calc(${controlCornerRadius} * 1px) 0}:host([orientation="vertical"]) .activeIndicatorTransition{transition: transform 0.2s linear}`.withBehaviors(forcedColorsStylesheetBehavior(css` .activeIndicator, :host([orientation="vertical"]) .activeIndicator{forced-color-adjust: none;background: ${SystemColors.Highlight}}`));
-
-const tabStyles = (context, definition) => css` ${display("inline-flex")} :host{box-sizing: border-box;font-family: ${bodyFont};font-size: ${typeRampBaseFontSize};line-height: ${typeRampBaseLineHeight};height: calc(${heightNumber} * 1px);padding: calc(${designUnit} * 5px) calc(${designUnit} * 4px);color: ${neutralForegroundHint$1};fill: currentcolor;border-radius: calc(${controlCornerRadius} * 1px);border: calc(${strokeWidth} * 1px) solid transparent;align-items: center;justify-content: center;grid-row: 1;cursor: pointer}:host(:hover){color: ${neutralForegroundRest};fill: currentcolor}:host(:active){color: ${neutralForegroundRest};fill: currentcolor}:host([disabled]){cursor: ${disabledCursor};opacity: ${disabledOpacity}}:host([disabled]:hover){color: ${neutralForegroundHint$1};background: ${neutralFillStealthRest}}:host([aria-selected="true"]){background: ${neutralFillRest};color: ${accentForegroundRest};fill: currentcolor}:host([aria-selected="true"]:hover){background: ${neutralFillHover};color: ${accentForegroundHover};fill: currentcolor}:host([aria-selected="true"]:active){background: ${neutralFillActive};color: ${accentForegroundActive};fill: currentcolor}:host(:${focusVisible}){outline: none;border: calc(${strokeWidth} * 1px) solid ${focusStrokeOuter$1};box-shadow: 0 0 0 calc((${focusStrokeWidth} - ${strokeWidth}) * 1px) ${focusStrokeOuter$1}}:host(:focus){outline: none}:host(.vertical){justify-content: end;grid-column: 2}:host(.vertical[aria-selected="true"]){z-index: 2}:host(.vertical:hover){color: ${neutralForegroundRest}}:host(.vertical:active){color: ${neutralForegroundRest}}:host(.vertical:hover[aria-selected="true"]){}`.withBehaviors(forcedColorsStylesheetBehavior(css` :host{forced-color-adjust: none;border-color: transparent;color: ${SystemColors.ButtonText};fill: currentcolor}:host(:hover), :host(.vertical:hover), :host([aria-selected="true"]:hover){background: ${SystemColors.Highlight};color: ${SystemColors.HighlightText};fill: currentcolor}:host([aria-selected="true"]){background: ${SystemColors.HighlightText};color: ${SystemColors.Highlight};fill: currentcolor}:host(:${focusVisible}){border-color: ${SystemColors.ButtonText};box-shadow: none}:host([disabled]), :host([disabled]:hover){opacity: 1;color: ${SystemColors.GrayText};background: ${SystemColors.ButtonFace}}`));
-
-/**
- * A function that returns a {@link @microsoft/fast-foundation#Tab} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#tabTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-tab\>
- */
-
-const fastTab = Tab.compose({
-  baseName: "tab",
-  template: tabTemplate,
-  styles: tabStyles
-});
-/**
- * Styles for Tab
- * @public
- */
-
-const tabStyles$1 = tabStyles;
-
-const tabPanelStyles = (context, definition) => css` ${display("flex")} :host{box-sizing: border-box;font-size: ${typeRampBaseFontSize};line-height: ${typeRampBaseLineHeight};padding: 0 calc((6 + (${designUnit} * 2 * ${density})) * 1px)}`;
-
-/**
- * A function that returns a {@link @microsoft/fast-foundation#TabPanel} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#tabPanelTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-tab-panel\>
- */
-
-const fastTabPanel = TabPanel.compose({
-  baseName: "tab-panel",
-  template: tabPanelTemplate,
-  styles: tabPanelStyles
-});
-/**
- * Styles for TabPanel
- * @public
- */
-
-const tabPanelStyles$1 = tabPanelStyles;
-
-/**
- * A function that returns a {@link @microsoft/fast-foundation#Tabs} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#tabsTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-tabs\>
- */
-
-const fastTabs = Tabs.compose({
-  baseName: "tabs",
-  template: tabsTemplate,
-  styles: tabsStyles
-});
-/**
- * Styles for Tabs
- * @public
- */
-
-const tabsStyles$1 = tabsStyles;
-
-const textAreaStyles = (context, definition) => css` ${display("inline-block")} :host{font-family: ${bodyFont};outline: none;user-select: none}.control{box-sizing: border-box;position: relative;color: ${neutralForegroundRest};background: ${neutralFillInputRest};border-radius: calc(${controlCornerRadius} * 1px);border: calc(${strokeWidth} * 1px) solid ${accentFillRest};height: calc(${heightNumber} * 2px);font: inherit;font-size: ${typeRampBaseFontSize};line-height: ${typeRampBaseLineHeight};padding: calc(${designUnit} * 2px + 1px);width: 100%;resize: none}.control:hover:enabled{background: ${neutralFillInputHover};border-color: ${accentFillHover}}.control:active:enabled{background: ${neutralFillInputActive};border-color: ${accentFillActive}}.control:hover, .control:${focusVisible}, .control:disabled, .control:active{outline: none}:host(:focus-within) .control{border-color: ${focusStrokeOuter$1};box-shadow: 0 0 0 1px ${focusStrokeOuter$1} inset}:host([appearance="filled"]) .control{background: ${neutralFillRest}}:host([appearance="filled"]:hover:not([disabled])) .control{background: ${neutralFillHover}}:host([resize="both"]) .control{resize: both}:host([resize="horizontal"]) .control{resize: horizontal}:host([resize="vertical"]) .control{resize: vertical}.label{display: block;color: ${neutralForegroundRest};cursor: pointer;font-size: ${typeRampBaseFontSize};line-height: ${typeRampBaseLineHeight};margin-bottom: 4px}.label__hidden{display: none;visibility: hidden}:host([disabled]) .label, :host([readonly]) .label, :host([readonly]) .control, :host([disabled]) .control{cursor: ${disabledCursor}}:host([disabled]){opacity: ${disabledOpacity}}:host([disabled]) .control{border-color: ${neutralStrokeRest}}`.withBehaviors(forcedColorsStylesheetBehavior(css` :host([disabled]){opacity: 1}`));
-
-/**
- * @internal
- */
-
-class TextArea$1 extends TextArea {
-  /**
-   * @internal
-   */
-  connectedCallback() {
-    super.connectedCallback();
-
-    if (!this.appearance) {
-      this.appearance = "outline";
-    }
-  }
-
-}
-
-__decorate$1([attr], TextArea$1.prototype, "appearance", void 0);
-/**
- * A function that returns a {@link @microsoft/fast-foundation#TextArea} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#textAreaTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-text-area\>
- *
- * {@link https://developer.mozilla.org/en-US/docs/Web/API/ShadowRoot/delegatesFocus | delegatesFocus}
- */
-
-
-const fastTextArea = TextArea$1.compose({
-  baseName: "text-area",
-  template: textAreaTemplate,
-  styles: textAreaStyles,
-  shadowOptions: {
-    delegatesFocus: true
-  }
-});
-/**
- * Styles for TextArea
- * @public
- */
-
-const textAreaStyles$1 = textAreaStyles;
-
-const textFieldStyles = (context, definition) => css` ${display("inline-block")} :host{font-family: ${bodyFont};outline: none;user-select: none}.root{box-sizing: border-box;position: relative;display: flex;flex-direction: row;color: ${neutralForegroundRest};background: ${neutralFillInputRest};border-radius: calc(${controlCornerRadius} * 1px);border: calc(${strokeWidth} * 1px) solid ${accentFillRest};height: calc(${heightNumber} * 1px)}.control{-webkit-appearance: none;font: inherit;background: transparent;border: 0;color: inherit;height: calc(100% - 4px);width: 100%;margin-top: auto;margin-bottom: auto;border: none;padding: 0 calc(${designUnit} * 2px + 1px);font-size: ${typeRampBaseFontSize};line-height: ${typeRampBaseLineHeight}}.control:hover, .control:${focusVisible}, .control:disabled, .control:active{outline: none}.label{display: block;color: ${neutralForegroundRest};cursor: pointer;font-size: ${typeRampBaseFontSize};line-height: ${typeRampBaseLineHeight};margin-bottom: 4px}.label__hidden{display: none;visibility: hidden}.start, .end{display: flex;margin: auto;fill: currentcolor}::slotted(svg){${
-/* Glyph size and margin-left is temporary -
-replace when adaptive typography is figured out */
-""} width: 16px;height: 16px}.start{margin-inline-start: 11px}.end{margin-inline-end: 11px}:host(:hover:not([disabled])) .root{background: ${neutralFillInputHover};border-color: ${accentFillHover}}:host(:active:not([disabled])) .root{background: ${neutralFillInputHover};border-color: ${accentFillActive}}:host(:focus-within:not([disabled])) .root{border-color: ${focusStrokeOuter$1};box-shadow: 0 0 0 1px ${focusStrokeOuter$1} inset}:host([appearance="filled"]) .root{background: ${neutralFillRest}}:host([appearance="filled"]:hover:not([disabled])) .root{background: ${neutralFillHover}}:host([disabled]) .label, :host([readonly]) .label, :host([readonly]) .control, :host([disabled]) .control{cursor: ${disabledCursor}}:host([disabled]){opacity: ${disabledOpacity}}:host([disabled]) .control{border-color: ${neutralStrokeRest}}`.withBehaviors(forcedColorsStylesheetBehavior(css` .root, :host([appearance="filled"]) .root{forced-color-adjust: none;background: ${SystemColors.Field};border-color: ${SystemColors.FieldText}}:host(:hover:not([disabled])) .root, :host([appearance="filled"]:hover:not([disabled])) .root, :host([appearance="filled"]:hover) .root{background: ${SystemColors.Field};border-color: ${SystemColors.Highlight}}.start, .end{fill: currentcolor}:host([disabled]){opacity: 1}:host([disabled]) .root, :host([appearance="filled"]:hover[disabled]) .root{border-color: ${SystemColors.GrayText};background: ${SystemColors.Field}}:host(:focus-within:enabled) .root{border-color: ${SystemColors.Highlight};box-shadow: 0 0 0 1px ${SystemColors.Highlight} inset}input::placeholder{color: ${SystemColors.GrayText}}`));
-
-/**
- * @internal
- */
-
-class TextField$1 extends TextField {
-  /**
-   * @internal
-   */
-  connectedCallback() {
-    super.connectedCallback();
-
-    if (!this.appearance) {
-      this.appearance = "outline";
-    }
-  }
-
-}
-
-__decorate$1([attr], TextField$1.prototype, "appearance", void 0);
-/**
- * A function that returns a {@link @microsoft/fast-foundation#TextField} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#textFieldTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-text-field\>
- *
- * {@link https://developer.mozilla.org/en-US/docs/Web/API/ShadowRoot/delegatesFocus | delegatesFocus}
- */
-
-
-const fastTextField = TextField$1.compose({
-  baseName: "text-field",
-  template: textFieldTemplate,
-  styles: textFieldStyles,
-  shadowOptions: {
-    delegatesFocus: true
-  }
-});
-/**
- * Styles for TextField
- * @public
- */
-
-const textFieldStyles$1 = textFieldStyles;
-
-/**
- * Styles for the {@link (FASTToolbar:class)|FASTToolbar component}.
- *
- * @public
- */
-
-const toolbarStyles = (context, definition) => css` ${display("inline-flex")} :host{--toolbar-item-gap: calc( (var(--design-unit) + calc(var(--density) + 2)) * 1px );background-color: ${fillColor};border-radius: calc(${controlCornerRadius} * 1px);fill: currentcolor;padding: var(--toolbar-item-gap)}:host(${focusVisible}){outline: calc(${strokeWidth} * 1px) solid ${neutralStrokeFocus}}.positioning-region{align-items: flex-start;display: inline-flex;flex-flow: row wrap;justify-content: flex-start}:host([orientation="vertical"]) .positioning-region{flex-direction: column}::slotted(:not([slot])){flex: 0 0 auto;margin: 0 var(--toolbar-item-gap)}:host([orientation="vertical"]) ::slotted(:not([slot])){margin: var(--toolbar-item-gap) 0}.start, .end{display: flex;margin: auto;margin-inline: 0}::slotted(svg){${
-/* Glyph size is temporary - replace when adaptive typography is figured out */
-""} width: 16px;height: 16px}`.withBehaviors(forcedColorsStylesheetBehavior(css` :host(:${focusVisible}){box-shadow: 0 0 0 calc(${focusStrokeWidth} * 1px) ${SystemColors.Highlight};color: ${SystemColors.ButtonText};forced-color-adjust: none}`));
-
-/**
- * @internal
- */
-
-class Toolbar$1 extends Toolbar {
-  connectedCallback() {
-    super.connectedCallback();
-    const parent = composedParent(this);
-
-    if (parent) {
-      fillColor.setValueFor(this, target => neutralFillLayerRecipe.getValueFor(target).evaluate(target, fillColor.getValueFor(parent)));
-    }
-  }
-
-}
-/**
- * A function that returns a {@link @microsoft/fast-foundation#Toolbar} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#ToolbarTemplate}
- *
- * @public
- * @remarks
- *
- * Generates HTML Element: \<fast-toolbar\>
- *
- */
-
-const fastToolbar = Toolbar$1.compose({
-  baseName: "toolbar",
-  template: toolbarTemplate,
-  styles: toolbarStyles,
-  shadowOptions: {
-    delegatesFocus: true
-  }
-});
-/**
- * Styles for Toolbar.
- * @public
- */
-
-const toolbarStyles$1 = toolbarStyles;
-
-const tooltipStyles = (context, definition) => css` :host{contain: layout;overflow: visible;height: 0;width: 0}.tooltip{box-sizing: border-box;border-radius: calc(${controlCornerRadius} * 1px);border: calc(${strokeWidth} * 1px) solid ${focusStrokeOuter$1};box-shadow: 0 0 0 1px ${focusStrokeOuter$1} inset;background: ${neutralFillRest};color: ${neutralForegroundRest};padding: 4px;height: fit-content;width: fit-content;font-family: ${bodyFont};font-size: ${typeRampBaseFontSize};line-height: ${typeRampBaseLineHeight};white-space: nowrap;${
-/* TODO: a mechanism to manage z-index across components
-https://github.com/microsoft/fast/issues/3813 */
-""} z-index: 10000}fast-anchored-region{display: flex;justify-content: center;align-items: center;overflow: visible;flex-direction: row}fast-anchored-region.right, fast-anchored-region.left{flex-direction: column}fast-anchored-region.top .tooltip{margin-bottom: 4px}fast-anchored-region.bottom .tooltip{margin-top: 4px}fast-anchored-region.left .tooltip{margin-right: 4px}fast-anchored-region.right .tooltip{margin-left: 4px}`.withBehaviors(forcedColorsStylesheetBehavior(css` :host([disabled]){opacity: 1}`));
-
-/**
- * A function that returns a {@link @microsoft/fast-foundation#Tooltip} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#tooltipTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-tooltip\>
- */
-
-const fastTooltip = Tooltip.compose({
-  baseName: "tooltip",
-  template: tooltipTemplate,
-  styles: tooltipStyles
-});
-/**
- * Styles for Tooltip
- * @public
- */
-
-const tooltipStyles$1 = tooltipStyles;
-
-const ltr$1 = css` .expand-collapse-glyph{transform: rotate(0deg)}:host(.nested) .expand-collapse-button{left: var(--expand-collapse-button-nested-width, calc(${heightNumber} * -1px))}:host([selected])::after{left: calc(${focusStrokeWidth} * 1px)}:host([expanded]) > .positioning-region .expand-collapse-glyph{transform: rotate(45deg)}`;
-const rtl$1 = css` .expand-collapse-glyph{transform: rotate(180deg)}:host(.nested) .expand-collapse-button{right: var(--expand-collapse-button-nested-width, calc(${heightNumber} * -1px))}:host([selected])::after{right: calc(${focusStrokeWidth} * 1px)}:host([expanded]) > .positioning-region .expand-collapse-glyph{transform: rotate(135deg)}`;
-const expandCollapseButtonSize = cssPartial`((${baseHeightMultiplier} / 2) * ${designUnit}) + ((${designUnit} * ${density}) / 2)`;
-const expandCollapseHoverBehavior = DesignToken.create("tree-item-expand-collapse-hover").withDefault(target => {
-  const recipe = neutralFillStealthRecipe.getValueFor(target);
-  return recipe.evaluate(target, recipe.evaluate(target).hover).hover;
-});
-const selectedExpandCollapseHoverBehavior = DesignToken.create("tree-item-expand-collapse-selected-hover").withDefault(target => {
-  const baseRecipe = neutralFillRecipe.getValueFor(target);
-  const buttonRecipe = neutralFillStealthRecipe.getValueFor(target);
-  return buttonRecipe.evaluate(target, baseRecipe.evaluate(target).rest).hover;
-});
-const treeItemStyles = (context, definition) => css` ${display("block")} :host{contain: content;position: relative;outline: none;color: ${neutralForegroundRest};background: ${neutralFillStealthRest};cursor: pointer;font-family: ${bodyFont};--expand-collapse-button-size: calc(${heightNumber} * 1px);--tree-item-nested-width: 0}:host(:focus) > .positioning-region{outline: none}:host(:focus) .content-region{outline: none}:host(:${focusVisible}) .positioning-region{border: ${focusStrokeOuter$1} calc(${strokeWidth} * 1px) solid;border-radius: calc(${controlCornerRadius} * 1px);color: ${neutralForegroundRest}}.positioning-region{display: flex;position: relative;box-sizing: border-box;border: transparent calc(${strokeWidth} * 1px) solid;height: calc((${heightNumber} + 1) * 1px)}.positioning-region::before{content: "";display: block;width: var(--tree-item-nested-width);flex-shrink: 0}.positioning-region:hover{background: ${neutralFillStealthHover}}.positioning-region:active{background: ${neutralFillStealthActive}}.content-region{display: inline-flex;align-items: center;white-space: nowrap;width: 100%;height: calc(${heightNumber} * 1px);margin-inline-start: calc(${designUnit} * 2px + 8px);font-size: ${typeRampBaseFontSize};line-height: ${typeRampBaseLineHeight};font-weight: 400}.items{display: none;${
-/* Font size should be based off calc(1em + (design-unit + glyph-size-number) * 1px) -
-update when density story is figured out */
-""} font-size: calc(1em + (${designUnit} + 16) * 1px)}.expand-collapse-button{background: none;border: none;outline: none;${
-/* Width and Height should be based off calc(glyph-size-number + (design-unit * 4) * 1px) -
-update when density story is figured out */
-""} width: calc((${expandCollapseButtonSize} + (${designUnit} * 2)) * 1px);height: calc((${expandCollapseButtonSize} + (${designUnit} * 2)) * 1px);padding: 0;display: flex;justify-content: center;align-items: center;cursor: pointer;margin-left: 6px;margin-right: 6px}.expand-collapse-glyph{${
-/* Glyph size is temporary -
-replace when glyph-size var is added */
-""} width: 16px;height: 16px;transition: transform 0.1s linear;pointer-events: none;fill: currentcolor}.start, .end{display: flex;fill: currentcolor}::slotted(svg){${
-/* Glyph size is temporary -
-replace when glyph-size var is added */
-""} width: 16px;height: 16px}.start{${
-/* need to swap out once we understand how horizontalSpacing will work */
-""} margin-inline-end: calc(${designUnit} * 2px + 2px)}.end{${
-/* need to swap out once we understand how horizontalSpacing will work */
-""} margin-inline-start: calc(${designUnit} * 2px + 2px)}:host([expanded]) > .items{display: block}:host([disabled]) .content-region{opacity: ${disabledOpacity};cursor: ${disabledCursor}}:host(.nested) .content-region{position: relative;margin-inline-start: var(--expand-collapse-button-size)}:host(.nested) .expand-collapse-button{position: absolute}:host(.nested) .expand-collapse-button:hover{background: ${expandCollapseHoverBehavior}}:host([selected]) .positioning-region{background: ${neutralFillRest}}:host([selected]) .expand-collapse-button:hover{background: ${selectedExpandCollapseHoverBehavior}}:host([selected])::after{content: "";display: block;position: absolute;top: calc((${heightNumber} / 4) * 1px);width: 3px;height: calc((${heightNumber} / 2) * 1px);${
-/* The french fry background needs to be calculated based on the selected background state for this control.
-We currently have no way of changing that, so setting to accent-foreground-rest for the time being */
-""} background: ${accentForegroundRest};border-radius: calc(${controlCornerRadius} * 1px)}::slotted(fast-tree-item){--tree-item-nested-width: 1em;--expand-collapse-button-nested-width: calc(${heightNumber} * -1px)}`.withBehaviors(new DirectionalStyleSheetBehavior(ltr$1, rtl$1), forcedColorsStylesheetBehavior(css` :host{forced-color-adjust: none;border-color: transparent;background: ${SystemColors.Field};color: ${SystemColors.FieldText}}:host .content-region .expand-collapse-glyph{fill: ${SystemColors.FieldText}}:host .positioning-region:hover, :host([selected]) .positioning-region{background: ${SystemColors.Highlight}}:host .positioning-region:hover .content-region, :host([selected]) .positioning-region .content-region{color: ${SystemColors.HighlightText}}:host .positioning-region:hover .content-region .expand-collapse-glyph, :host .positioning-region:hover .content-region .start, :host .positioning-region:hover .content-region .end, :host([selected]) .content-region .expand-collapse-glyph, :host([selected]) .content-region .start, :host([selected]) .content-region .end{fill: ${SystemColors.HighlightText}}:host([selected])::after{background: ${SystemColors.Field}}:host(:${focusVisible}) .positioning-region{border-color: ${SystemColors.FieldText};box-shadow: 0 0 0 2px inset ${SystemColors.Field};color: ${SystemColors.FieldText}}:host([disabled]) .content-region, :host([disabled]) .positioning-region:hover .content-region{opacity: 1;color: ${SystemColors.GrayText}}:host([disabled]) .content-region .expand-collapse-glyph, :host([disabled]) .content-region .start, :host([disabled]) .content-region .end, :host([disabled]) .positioning-region:hover .content-region .expand-collapse-glyph, :host([disabled]) .positioning-region:hover .content-region .start, :host([disabled]) .positioning-region:hover .content-region .end{fill: ${SystemColors.GrayText}}:host([disabled]) .positioning-region:hover{background: ${SystemColors.Field}}.expand-collapse-glyph, .start, .end{fill: ${SystemColors.FieldText}}:host(.nested) .expand-collapse-button:hover{background: ${SystemColors.Field}}:host(.nested) .expand-collapse-button:hover .expand-collapse-glyph{fill: ${SystemColors.FieldText}}`));
-
-/**
- * A function that returns a {@link @microsoft/fast-foundation#TreeItem} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#treeItemTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-tree-item\>
- *
- */
-
-const fastTreeItem = TreeItem.compose({
-  baseName: "tree-item",
-  template: treeItemTemplate,
-  styles: treeItemStyles,
-  expandCollapseGlyph: `
-        <svg
-            viewBox="0 0 16 16"
-            xmlns="http://www.w3.org/2000/svg"
-            class="expand-collapse-glyph"
-        >
-            <path
-                d="M5.00001 12.3263C5.00124 12.5147 5.05566 12.699 5.15699 12.8578C5.25831 13.0167 5.40243 13.1437 5.57273 13.2242C5.74304 13.3047 5.9326 13.3354 6.11959 13.3128C6.30659 13.2902 6.4834 13.2152 6.62967 13.0965L10.8988 8.83532C11.0739 8.69473 11.2153 8.51658 11.3124 8.31402C11.4096 8.11146 11.46 7.88966 11.46 7.66499C11.46 7.44033 11.4096 7.21853 11.3124 7.01597C11.2153 6.81341 11.0739 6.63526 10.8988 6.49467L6.62967 2.22347C6.48274 2.10422 6.30501 2.02912 6.11712 2.00691C5.92923 1.9847 5.73889 2.01628 5.56823 2.09799C5.39757 2.17969 5.25358 2.30817 5.153 2.46849C5.05241 2.62882 4.99936 2.8144 5.00001 3.00369V12.3263Z"
-            />
-        </svg>
-    `
-});
-/**
- * Styles for TreeItem
- * @public
- */
-
-const treeItemStyles$1 = treeItemStyles;
-
-const treeViewStyles = (context, definition) => css` :host([hidden]){display: none}${display("flex")} :host{flex-direction: column;align-items: stretch;min-width: fit-content;font-size: 0}:host:focus-visible{outline: none}`;
-
-/**
- * A function that returns a {@link @microsoft/fast-foundation#TreeView} registration for configuring the component with a DesignSystem.
- * Implements {@link @microsoft/fast-foundation#treeViewTemplate}
- *
- *
- * @public
- * @remarks
- * Generates HTML Element: \<fast-tree-view\>
- *
- */
-
-const fastTreeView = TreeView.compose({
-  baseName: "tree-view",
-  template: treeViewTemplate,
-  styles: treeViewStyles
-});
-/**
- * Styles for TreeView
- * @public
- */
-
-const treeViewStyles$1 = treeViewStyles;
-
-/**
- * Export all custom element definitions
- */
-/**
- * All Web Components
- * @public
- */
-
-const allComponents = {
-  fastAccordion,
-  fastAccordionItem,
-  fastAnchor,
-  fastAnchoredRegion,
-  fastAvatar,
-  fastBadge,
-  fastBreadcrumb,
-  fastBreadcrumbItem,
-  fastButton,
-  fastCard,
-  fastCheckbox,
-  fastCombobox,
-  fastDataGrid,
-  fastDataGridCell,
-  fastDataGridRow,
-  fastDialog,
-  fastDisclosure,
-  fastDivider,
-  fastFlipper,
-  fastHorizontalScroll,
-  fastListbox,
-  fastOption,
-  fastMenu,
-  fastMenuItem,
-  fastNumberField,
-  fastPicker,
-  fastPickerList,
-  fastPickerListItem,
-  fastPickerMenu,
-  fastPickerMenuOption,
-  fastProgress,
-  fastProgressRing,
-  fastRadio,
-  fastRadioGroup,
-  fastSelect,
-  fastSkeleton,
-  fastSlider,
-  fastSliderLabel,
-  fastSwitch,
-  fastTabs,
-  fastTab,
-  fastTabPanel,
-  fastTextArea,
-  fastTextField,
-  fastTooltip,
-  fastToolbar,
-  fastTreeView,
-  fastTreeItem
-};
-
 /**
  * A {@link ValueConverter} that converts to and from `Swatch` values.
  * @remarks
@@ -24862,7 +23618,9 @@ const swatchConverter = {
   }
 
 };
-const backgroundStyles = css` :host{background-color: ${fillColor};color: ${neutralForegroundRest}}`.withBehaviors(forcedColorsStylesheetBehavior(css` :host{background-color: ${SystemColors.ButtonFace};box-shadow: 0 0 0 1px ${SystemColors.CanvasText};color: ${SystemColors.ButtonText}}`));
+const backgroundStyles = css`
+    :host{background-color:${fillColor};color:${neutralForegroundRest}}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+            :host{background-color:${SystemColors.ButtonFace};box-shadow:0 0 0 1px ${SystemColors.CanvasText};color:${SystemColors.ButtonText}}`));
 
 function designToken(token) {
   return (source, key) => {
@@ -24877,7 +23635,7 @@ function designToken(token) {
 }
 /**
  * The FAST DesignSystemProvider Element.
- * @public
+ * @internal
  */
 
 
@@ -25190,24 +23948,1334 @@ __decorate$1([attr({
   converter: nullableNumberConverter
 }), designToken(neutralStrokeFocusDelta)], DesignSystemProvider.prototype, "neutralStrokeFocusDelta", void 0);
 /**
-A function that returns a {@link @microsoft/fast-foundation#DesignSystemProvider} registration for configuring the component with a DesignSystem. *
+ * Template for DesignSystemProvider.
+ * @public
+ */
+
+
+const designSystemProviderTemplate = (context, definition) => html`<slot></slot>`;
+/**
+ * Styles for DesignSystemProvider.
+ * @public
+ */
+
+const designSystemProviderStyles = (context, definition) => css`
+    ${display("block")}
+`;
+/**
+ * A function that returns a {@link DesignSystemProvider} registration for configuring the component with a DesignSystem.
  * @public
  * @remarks
  * Generates HTML Element: \<fast-design-system-provider\>
  */
 
-
 const fastDesignSystemProvider = DesignSystemProvider.compose({
   baseName: "design-system-provider",
-  template: html`<slot></slot>`,
-  styles: css` ${display("block")} `
+  template: designSystemProviderTemplate,
+  styles: designSystemProviderStyles
 });
+
+const dialogStyles = (context, definition) => css`
+    :host([hidden]){display:none}:host{--elevation:14;--dialog-height:480px;--dialog-width:640px;display:block}.overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.3);touch-action:none}.positioning-region{display:flex;justify-content:center;position:fixed;top:0;bottom:0;left:0;right:0;overflow:auto}.control{${elevation}
+        margin-top:auto;margin-bottom:auto;width:var(--dialog-width);height:var(--dialog-height);background-color:${fillColor};z-index:1;border-radius:calc(${controlCornerRadius} * 1px);border:calc(${strokeWidth} * 1px) solid transparent}`;
+
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#Dialog} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#dialogTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-dialog\>
+ */
+
+const fastDialog = Dialog.compose({
+  baseName: "dialog",
+  template: dialogTemplate,
+  styles: dialogStyles
+});
+/**
+ * Styles for Dialog
+ * @public
+ */
+
+const dialogStyles$1 = dialogStyles;
+
+const disclosureStyles = (context, definition) => css`
+    .disclosure{transition:height 0.35s}.disclosure .invoker::-webkit-details-marker{display:none}.disclosure .invoker{list-style-type:none}:host([appearance="accent"]) .invoker{background:${accentFillRest};color:${foregroundOnAccentRest};font-family:${bodyFont};font-size:${typeRampBaseFontSize};border-radius:calc(${controlCornerRadius} * 1px);outline:none;cursor:pointer;margin:16px 0;padding:12px;max-width:max-content}:host([appearance="accent"]) .invoker:active{background:${accentFillActive};color:${foregroundOnAccentActive}}:host([appearance="accent"]) .invoker:hover{background:${accentFillHover};color:${foregroundOnAccentHover}}:host([appearance="lightweight"]) .invoker{background:transparent;color:${accentForegroundRest};border-bottom:calc(${strokeWidth} * 1px) solid ${accentForegroundRest};cursor:pointer;width:max-content;margin:16px 0}:host([appearance="lightweight"]) .invoker:active{border-bottom-color:${accentForegroundActive}}:host([appearance="lightweight"]) .invoker:hover{border-bottom-color:${accentForegroundHover}}.disclosure[open] .invoker ~ *{animation:fadeIn 0.5s ease-in-out}@keyframes fadeIn{0%{opacity:0}100%{opacity:1}}`;
+
+/**
+ * @internal
+ */
+
+class Disclosure$1 extends Disclosure {
+  appearanceChanged(oldValue, newValue) {
+    if (oldValue !== newValue) {
+      this.classList.add(newValue);
+      this.classList.remove(oldValue);
+    }
+  }
+  /**
+   * Set disclosure height while transitioning
+   * @override
+   */
+
+
+  onToggle() {
+    super.onToggle();
+    this.details.style.setProperty("height", `${this.disclosureHeight}px`);
+  }
+  /**
+   * Calculate disclosure height before and after expanded
+   * @override
+   */
+
+
+  setup() {
+    super.setup();
+
+    if (!this.appearance) {
+      this.appearance = "accent";
+    }
+
+    const getCurrentHeight = () => this.details.getBoundingClientRect().height;
+
+    this.show();
+    this.totalHeight = getCurrentHeight();
+    this.hide();
+    this.height = getCurrentHeight();
+
+    if (this.expanded) {
+      this.show();
+    }
+  }
+
+  get disclosureHeight() {
+    return this.expanded ? this.totalHeight : this.height;
+  }
+
+}
+
+__decorate$1([attr], Disclosure$1.prototype, "appearance", void 0);
+/**
+ * Styles for Disclosure
+ * @public
+ */
+
+
+const disclosureStyles$1 = disclosureStyles;
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#Disclosure} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#disclosureTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-Disclosure\>
+ *
+ */
+
+const fastDisclosure = Disclosure$1.compose({
+  baseName: "disclosure",
+  template: disclosureTemplate,
+  styles: disclosureStyles
+});
+
+const dividerStyles = (context, definition) => css`
+        ${display("block")} :host{box-sizing:content-box;height:0;margin:calc(${designUnit} * 1px) 0;border:none;border-top:calc(${strokeWidth} * 1px) solid ${neutralStrokeDividerRest}}`;
+
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#Divider} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#dividerTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-divider\>
+ */
+
+const fastDivider = Divider.compose({
+  baseName: "divider",
+  template: dividerTemplate,
+  styles: dividerStyles
+});
+/**
+ * Styles for Divider
+ * @public
+ */
+
+const dividerStyles$1 = dividerStyles;
+
+const flipperStyles = (context, definition) => css`
+    ${display("inline-flex")} :host{width:calc(${heightNumber} * 1px);height:calc(${heightNumber} * 1px);justify-content:center;align-items:center;margin:0;position:relative;fill:currentcolor;color:${foregroundOnAccentRest};background:transparent;outline:none;border:none;padding:0}:host::before{content:"";background:${accentFillRest};border:calc(${strokeWidth} * 1px) solid ${accentFillRest};border-radius:50%;position:absolute;top:0;right:0;left:0;bottom:0;transition:all 0.1s ease-in-out}.next,.previous{position:relative;width:16px;height:16px;display:grid}:host([disabled]){opacity:${disabledOpacity};cursor:${disabledCursor};fill:currentcolor;color:${neutralForegroundRest}}:host([disabled])::before,:host([disabled]:hover)::before,:host([disabled]:active)::before{background:${neutralFillStealthRest};border-color:${neutralStrokeRest}}:host(:hover){color:${foregroundOnAccentHover}}:host(:hover)::before{background:${accentFillHover};border-color:${accentFillHover}}:host(:active){color:${foregroundOnAccentActive}}:host(:active)::before{background:${accentFillActive};border-color:${accentFillActive}}:host(:${focusVisible}){outline:none}:host(:${focusVisible})::before{box-shadow:0 0 0 calc((${focusStrokeWidth} - ${strokeWidth}) * 1px) ${focusStrokeOuter$1} inset,0 0 0 calc((${focusStrokeWidth} + ${strokeWidth}) * 1px) ${focusStrokeInner$1} inset;border-color:${focusStrokeOuter$1}}:host::-moz-focus-inner{border:0}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+            :host{background:${SystemColors.Canvas}}:host .next,:host .previous{color:${SystemColors.ButtonText};fill:currentcolor}:host::before{background:${SystemColors.Canvas};border-color:${SystemColors.ButtonText}}:host(:hover)::before{forced-color-adjust:none;background:${SystemColors.Highlight};border-color:${SystemColors.ButtonText};opacity:1}:host(:hover) .next,:host(:hover) .previous{forced-color-adjust:none;color:${SystemColors.HighlightText};fill:currentcolor}:host([disabled]){opacity:1}:host([disabled])::before,:host([disabled]:hover)::before,:host([disabled]) .next,:host([disabled]) .previous{forced-color-adjust:none;background:${SystemColors.Canvas};border-color:${SystemColors.GrayText};color:${SystemColors.GrayText};fill:${SystemColors.GrayText}}:host(:${focusVisible})::before{forced-color-adjust:none;border-color:${SystemColors.Highlight};box-shadow:0 0 0 calc((${focusStrokeWidth} - ${strokeWidth}) * 1px) ${SystemColors.Highlight} inset}`));
+
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#Flipper} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#flipperTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-flipper\>
+ */
+
+const fastFlipper = Flipper.compose({
+  baseName: "flipper",
+  template: flipperTemplate,
+  styles: flipperStyles,
+  next: `
+        <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="M4.023 15.273L11.29 8 4.023.727l.704-.704L12.71 8l-7.984 7.977-.704-.704z"
+            />
+        </svg>
+    `,
+  previous: `
+        <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="M11.273 15.977L3.29 8 11.273.023l.704.704L4.71 8l7.266 7.273-.704.704z"
+            />
+        </svg>
+    `
+});
+/**
+ * Styles for Flipper
+ * @public
+ */
+
+const flipperStyles$1 = flipperStyles;
+
+const ltrActionsStyles = css`
+    .scroll-prev{right:auto;left:0}.scroll.scroll-next::before,.scroll-next .scroll-action{left:auto;right:0}.scroll.scroll-next::before{background:linear-gradient(to right,transparent,var(--scroll-fade-next))}.scroll-next .scroll-action{transform:translate(50%,-50%)}`;
+const rtlActionsStyles = css`
+    .scroll.scroll-next{right:auto;left:0}.scroll.scroll-next::before{background:linear-gradient(to right,var(--scroll-fade-next),transparent);left:auto;right:0}.scroll.scroll-prev::before{background:linear-gradient(to right,transparent,var(--scroll-fade-previous))}.scroll-prev .scroll-action{left:auto;right:0;transform:translate(50%,-50%)}`;
+/**
+ * Styles used for the flipper container and gradient fade
+ * @public
+ */
+
+const ActionsStyles = css`
+    .scroll-area{position:relative}div.scroll-view{overflow-x:hidden}.scroll{bottom:0;pointer-events:none;position:absolute;right:0;top:0;user-select:none;width:100px}.scroll.disabled{display:none}.scroll::before,.scroll-action{left:0;position:absolute}.scroll::before{background:linear-gradient(to right,var(--scroll-fade-previous),transparent);content:"";display:block;height:100%;width:100%}.scroll-action{pointer-events:auto;right:auto;top:50%;transform:translate(-50%,-50%)}`.withBehaviors(new DirectionalStyleSheetBehavior(ltrActionsStyles, rtlActionsStyles));
+/**
+ * Styles handling the scroll container and content
+ * @public
+ */
+
+const horizontalScrollStyles = (context, definition) => css`
+    ${display("block")} :host{--scroll-align:center;--scroll-item-spacing:5px;contain:layout;position:relative}.scroll-view{overflow-x:auto;scrollbar-width:none}::-webkit-scrollbar{display:none}.content-container{align-items:var(--scroll-align);display:inline-flex;flex-wrap:nowrap;position:relative}.content-container ::slotted(*){margin-right:var(--scroll-item-spacing)}.content-container ::slotted(*:last-child){margin-right:0}`;
+
+/**
+ * @internal
+ */
+
+class HorizontalScroll$1 extends HorizontalScroll {
+  /**
+   * @public
+   */
+  connectedCallback() {
+    super.connectedCallback();
+
+    if (this.view !== "mobile") {
+      this.$fastController.addStyles(ActionsStyles);
+    }
+  }
+
+}
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#HorizontalScroll} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#horizontalScrollTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-horizontal-scroll\>
+ */
+
+const fastHorizontalScroll = HorizontalScroll$1.compose({
+  baseName: "horizontal-scroll",
+  template: horizontalScrollTemplate,
+  styles: horizontalScrollStyles,
+  nextFlipper: html`<fast-flipper @click="${x => x.scrollToNext()}" aria-hidden="${x => x.flippersHiddenFromAT}"></fast-flipper>`,
+  previousFlipper: html`<fast-flipper @click="${x => x.scrollToPrevious()}" direction="previous" aria-hidden="${x => x.flippersHiddenFromAT}"></fast-flipper>`
+});
+
+const optionStyles = (context, definition) => css`
+    ${display("inline-flex")} :host{align-items:center;font-family:${bodyFont};border-radius:calc(${controlCornerRadius} * 1px);border:calc(${focusStrokeWidth} * 1px) solid transparent;box-sizing:border-box;color:${neutralForegroundRest};cursor:pointer;fill:currentcolor;font-size:${typeRampBaseFontSize};height:calc(${heightNumber} * 1px);line-height:${typeRampBaseLineHeight};margin:0 calc(${designUnit} * 1px);outline:none;overflow:hidden;padding:0 calc(${designUnit} * 2.25px);user-select:none;white-space:nowrap}:host(:${focusVisible}){box-shadow:0 0 0 calc(${focusStrokeWidth} * 1px) inset ${focusStrokeInner$1};border-color:${focusStrokeOuter$1};background:${accentFillFocus};color:${foregroundOnAccentFocus}}:host([aria-selected="true"]){background:${accentFillRest};color:${foregroundOnAccentRest}}:host(:hover){background:${accentFillHover};color:${foregroundOnAccentHover}}:host(:active){background:${accentFillActive};color:${foregroundOnAccentActive}}:host(:not([aria-selected="true"]):hover){background:${neutralFillHover};color:${neutralForegroundRest}}:host(:not([aria-selected="true"]):active){background:${neutralFillHover};color:${neutralForegroundRest}}:host([disabled]){cursor:${disabledCursor};opacity:${disabledOpacity}}:host([disabled]:hover){background-color:inherit}.content{grid-column-start:2;justify-self:start;overflow:hidden;text-overflow:ellipsis}.start,.end,::slotted(svg){display:flex}::slotted(svg){height:calc(${designUnit} * 4px);width:calc(${designUnit} * 4px)}::slotted([slot="end"]){margin-inline-start:1ch}::slotted([slot="start"]){margin-inline-end:1ch}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+                :host{border-color:transparent;forced-color-adjust:none;color:${SystemColors.ButtonText};fill:currentcolor}:host(:not([aria-selected="true"]):hover),:host([aria-selected="true"]){background:${SystemColors.Highlight};color:${SystemColors.HighlightText}}:host([disabled]),:host([disabled]:not([aria-selected="true"]):hover){background:${SystemColors.Canvas};color:${SystemColors.GrayText};fill:currentcolor;opacity:1}`));
+
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#ListboxOption} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#listboxOptionTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-option\>
+ *
+ */
+
+const fastOption = ListboxOption.compose({
+  baseName: "option",
+  template: listboxOptionTemplate,
+  styles: optionStyles
+});
+/**
+ * Styles for Option
+ * @public
+ */
+
+const optionStyles$1 = optionStyles;
+
+const listboxStyles = (context, definition) => css`
+        ${display("inline-flex")} :host{background:${neutralLayerFloating$1};border:calc(${strokeWidth} * 1px) solid ${neutralStrokeRest};border-radius:calc(${controlCornerRadius} * 1px);box-sizing:border-box;flex-direction:column;padding:calc(${designUnit} * 1px) 0}:host(:focus-within:not([disabled])){border-color:${focusStrokeOuter$1};box-shadow:0 0 0 calc((${focusStrokeWidth} - ${strokeWidth}) * 1px)
+                ${focusStrokeOuter$1} inset}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+            :host(:${focusVisible}) ::slotted([aria-selected="true"][role="option"]){background:${SystemColors.Highlight};border-color:${SystemColors.ButtonText};box-shadow:0 0 0 calc(${focusStrokeWidth} * 1px) inset ${SystemColors.HighlightText};color:${SystemColors.HighlightText};fill:currentcolor}:host(:${focusVisible}) ::slotted([aria-selected="true"][role="option"]){background:${SystemColors.Highlight};border-color:${SystemColors.ButtonText};box-shadow:0 0 0 calc(${focusStrokeWidth} * 1px) inset ${SystemColors.HighlightText};color:${SystemColors.HighlightText};fill:currentcolor}`));
+
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#Listbox} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#listboxTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-listbox\>
+ *
+ */
+
+const fastListbox = Listbox.compose({
+  baseName: "listbox",
+  template: listboxTemplate,
+  styles: listboxStyles
+});
+/**
+ * Styles for Listbox
+ * @public
+ */
+
+const listboxStyles$1 = listboxStyles;
+
+const menuItemStyles = (context, definition) => css`
+    ${display("grid")} :host{contain:layout;overflow:visible;font-family:${bodyFont};outline:none;box-sizing:border-box;height:calc(${heightNumber} * 1px);grid-template-columns:minmax(42px,auto) 1fr minmax(42px,auto);grid-template-rows:auto;justify-items:center;align-items:center;padding:0;margin:0 calc(${designUnit} * 1px);white-space:nowrap;color:${neutralForegroundRest};fill:currentcolor;cursor:pointer;font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight};border-radius:calc(${controlCornerRadius} * 1px);border:calc(${focusStrokeWidth} * 1px) solid transparent}:host(.indent-0){grid-template-columns:auto 1fr minmax(42px,auto)}:host(.indent-0) .content{grid-column:1;grid-row:1;margin-inline-start:10px}:host(.indent-0) .expand-collapse-glyph-container{grid-column:5;grid-row:1}:host(.indent-2){grid-template-columns:minmax(42px,auto) minmax(42px,auto) 1fr minmax(42px,auto) minmax(42px,auto)}:host(.indent-2) .content{grid-column:3;grid-row:1;margin-inline-start:10px}:host(.indent-2) .expand-collapse-glyph-container{grid-column:5;grid-row:1}:host(.indent-2) .start{grid-column:2}:host(.indent-2) .end{grid-column:4}:host(:${focusVisible}){border-color:${focusStrokeOuter$1};background:${neutralLayer3$1};color:${neutralForegroundRest}}:host(:hover){background:${neutralLayer3$1};color:${neutralForegroundRest}}:host([aria-checked="true"]),:host(:active),:host(.expanded){background:${neutralLayer2$1};color:${neutralForegroundRest}}:host([disabled]){cursor:${disabledCursor};opacity:${disabledOpacity}}:host([disabled]:hover){color:${neutralForegroundRest};fill:currentcolor;background:${neutralFillStealthRest}}:host([disabled]:hover) .start,:host([disabled]:hover) .end,:host([disabled]:hover)::slotted(svg){fill:${neutralForegroundRest}}.expand-collapse-glyph{width:16px;height:16px;fill:currentcolor}.content{grid-column-start:2;justify-self:start;overflow:hidden;text-overflow:ellipsis}.start,.end{display:flex;justify-content:center}::slotted(svg){width:16px;height:16px}:host(:hover) .start,:host(:hover) .end,:host(:hover)::slotted(svg),:host(:active) .start,:host(:active) .end,:host(:active)::slotted(svg){fill:${neutralForegroundRest}}:host(.indent-0[aria-haspopup="menu"]){display:grid;grid-template-columns:minmax(42px,auto) auto 1fr minmax(42px,auto) minmax(42px,auto);align-items:center;min-height:32px}:host(.indent-1[aria-haspopup="menu"]),:host(.indent-1[role="menuitemcheckbox"]),:host(.indent-1[role="menuitemradio"]){display:grid;grid-template-columns:minmax(42px,auto) auto 1fr minmax(42px,auto) minmax(42px,auto);align-items:center;min-height:32px}:host(.indent-2:not([aria-haspopup="menu"])) .end{grid-column:5}:host .input-container,:host .expand-collapse-glyph-container{display:none}:host([aria-haspopup="menu"]) .expand-collapse-glyph-container,:host([role="menuitemcheckbox"]) .input-container,:host([role="menuitemradio"]) .input-container{display:grid;margin-inline-end:10px}:host([aria-haspopup="menu"]) .content,:host([role="menuitemcheckbox"]) .content,:host([role="menuitemradio"]) .content{grid-column-start:3}:host([aria-haspopup="menu"].indent-0) .content{grid-column-start:1}:host([aria-haspopup="menu"]) .end,:host([role="menuitemcheckbox"]) .end,:host([role="menuitemradio"]) .end{grid-column-start:4}:host .expand-collapse,:host .checkbox,:host .radio{display:flex;align-items:center;justify-content:center;position:relative;width:20px;height:20px;box-sizing:border-box;outline:none;margin-inline-start:10px}:host .checkbox,:host .radio{border:calc(${strokeWidth} * 1px) solid ${neutralForegroundRest}}:host([aria-checked="true"]) .checkbox,:host([aria-checked="true"]) .radio{background:${accentFillRest};border-color:${accentFillRest}}:host .checkbox{border-radius:calc(${controlCornerRadius} * 1px)}:host .radio{border-radius:999px}:host .checkbox-indicator,:host .radio-indicator,:host .expand-collapse-indicator,::slotted([slot="checkbox-indicator"]),::slotted([slot="radio-indicator"]),::slotted([slot="expand-collapse-indicator"]){display:none}::slotted([slot="end"]:not(svg)){margin-inline-end:10px;color:${neutralForegroundHint$1}}:host([aria-checked="true"]) .checkbox-indicator,:host([aria-checked="true"]) ::slotted([slot="checkbox-indicator"]){width:100%;height:100%;display:block;fill:${neutralForegroundRest};pointer-events:none}:host([aria-checked="true"]) .radio-indicator{position:absolute;top:4px;left:4px;right:4px;bottom:4px;border-radius:999px;display:block;background:${neutralForegroundRest};pointer-events:none}:host([aria-checked="true"]) ::slotted([slot="radio-indicator"]){display:block;pointer-events:none}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+            :host{border-color:transparent;color:${SystemColors.ButtonText};forced-color-adjust:none}:host(:hover){background:${SystemColors.Highlight};color:${SystemColors.HighlightText}}:host(:hover) .start,:host(:hover) .end,:host(:hover)::slotted(svg),:host(:active) .start,:host(:active) .end,:host(:active)::slotted(svg){fill:${SystemColors.HighlightText}}:host(.expanded){background:${SystemColors.Highlight};border-color:${SystemColors.Highlight};color:${SystemColors.HighlightText}}:host(:${focusVisible}){background:${SystemColors.Highlight};border-color:${SystemColors.ButtonText};box-shadow:0 0 0 calc(${focusStrokeWidth} * 1px) inset ${SystemColors.HighlightText};color:${SystemColors.HighlightText};fill:currentcolor}:host([disabled]),:host([disabled]:hover),:host([disabled]:hover) .start,:host([disabled]:hover) .end,:host([disabled]:hover)::slotted(svg){background:${SystemColors.Canvas};color:${SystemColors.GrayText};fill:currentcolor;opacity:1}:host .expanded-toggle,:host .checkbox,:host .radio{border-color:${SystemColors.ButtonText};background:${SystemColors.HighlightText}}:host([checked="true"]) .checkbox,:host([checked="true"]) .radio{background:${SystemColors.HighlightText};border-color:${SystemColors.HighlightText}}:host(:hover) .expanded-toggle,:host(:hover) .checkbox,:host(:hover) .radio,:host(:${focusVisible}) .expanded-toggle,:host(:${focusVisible}) .checkbox,:host(:${focusVisible}) .radio,:host([checked="true"]:hover) .checkbox,:host([checked="true"]:hover) .radio,:host([checked="true"]:${focusVisible}) .checkbox,:host([checked="true"]:${focusVisible}) .radio{border-color:${SystemColors.HighlightText}}:host([aria-checked="true"]){background:${SystemColors.Highlight};color:${SystemColors.HighlightText}}:host([aria-checked="true"]) .checkbox-indicator,:host([aria-checked="true"]) ::slotted([slot="checkbox-indicator"]),:host([aria-checked="true"]) ::slotted([slot="radio-indicator"]){fill:${SystemColors.Highlight}}:host([aria-checked="true"]) .radio-indicator{background:${SystemColors.Highlight}}::slotted([slot="end"]:not(svg)){color:${SystemColors.ButtonText}}:host(:hover) ::slotted([slot="end"]:not(svg)),:host(:${focusVisible}) ::slotted([slot="end"]:not(svg)){color:${SystemColors.HighlightText}}`), new DirectionalStyleSheetBehavior(css`
+                .expand-collapse-glyph{transform:rotate(0deg)}`, css`
+                .expand-collapse-glyph{transform:rotate(180deg)}`));
+
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#MenuItem} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#menuItemTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-menu-item\>
+ */
+
+const fastMenuItem = MenuItem.compose({
+  baseName: "menu-item",
+  template: menuItemTemplate,
+  styles: menuItemStyles,
+  checkboxIndicator: `
+        <svg
+            part="checkbox-indicator"
+            class="checkbox-indicator"
+            viewBox="0 0 20 20"
+            xmlns="http://www.w3.org/2000/svg"
+        >
+            <path
+                fill-rule="evenodd"
+                clip-rule="evenodd"
+                d="M8.143 12.6697L15.235 4.5L16.8 5.90363L8.23812 15.7667L3.80005 11.2556L5.27591 9.7555L8.143 12.6697Z"
+            />
+        </svg>
+    `,
+  expandCollapseGlyph: `
+        <svg
+            viewBox="0 0 16 16"
+            xmlns="http://www.w3.org/2000/svg"
+            class="expand-collapse-glyph"
+            part="expand-collapse-glyph"
+        >
+            <path
+                d="M5.00001 12.3263C5.00124 12.5147 5.05566 12.699 5.15699 12.8578C5.25831 13.0167 5.40243 13.1437 5.57273 13.2242C5.74304 13.3047 5.9326 13.3354 6.11959 13.3128C6.30659 13.2902 6.4834 13.2152 6.62967 13.0965L10.8988 8.83532C11.0739 8.69473 11.2153 8.51658 11.3124 8.31402C11.4096 8.11146 11.46 7.88966 11.46 7.66499C11.46 7.44033 11.4096 7.21853 11.3124 7.01597C11.2153 6.81341 11.0739 6.63526 10.8988 6.49467L6.62967 2.22347C6.48274 2.10422 6.30501 2.02912 6.11712 2.00691C5.92923 1.9847 5.73889 2.01628 5.56823 2.09799C5.39757 2.17969 5.25358 2.30817 5.153 2.46849C5.05241 2.62882 4.99936 2.8144 5.00001 3.00369V12.3263Z"
+            />
+        </svg>
+    `,
+  radioIndicator: `
+        <span part="radio-indicator" class="radio-indicator"></span>
+    `
+});
+/**
+ * Styles for MenuItem
+ * @public
+ */
+
+const menuItemStyles$1 = menuItemStyles;
+
+const menuStyles = (context, definition) => css`
+        ${display("block")} :host{--elevation:11;background:${neutralLayerFloating$1};border:calc(${strokeWidth} * 1px) solid transparent;${elevation}
+            margin:0;border-radius:calc(${controlCornerRadius} * 1px);padding:calc(${designUnit} * 1px) 0;max-width:368px;min-width:64px}:host([slot="submenu"]){width:max-content;margin:0 calc(${designUnit} * 1px)}::slotted(hr){box-sizing:content-box;height:0;margin:0;border:none;border-top:calc(${strokeWidth} * 1px) solid ${neutralStrokeDividerRest}}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+                :host{background:${SystemColors.Canvas};border-color:${SystemColors.CanvasText}}`));
+
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#Menu} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#menuTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-menu\>
+ */
+
+const fastMenu = Menu.compose({
+  baseName: "menu",
+  template: menuTemplate,
+  styles: menuStyles
+});
+/**
+ * Styles for Menu
+ * @public
+ */
+
+const menuStyles$1 = menuStyles;
+
+const numberFieldStyles = (context, definition) => css`
+    ${display("inline-block")} :host{font-family:${bodyFont};outline:none;user-select:none}.root{box-sizing:border-box;position:relative;display:flex;flex-direction:row;color:${neutralForegroundRest};background:${neutralFillInputRest};border-radius:calc(${controlCornerRadius} * 1px);border:calc(${strokeWidth} * 1px) solid ${accentFillRest};height:calc(${heightNumber} * 1px)}.control{-webkit-appearance:none;font:inherit;background:transparent;border:0;color:inherit;height:calc(100% - 4px);width:100%;margin-top:auto;margin-bottom:auto;border:none;padding:0 calc(${designUnit} * 2px + 1px);font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight}}.control:hover,.control:${focusVisible},.control:disabled,.control:active{outline:none}.controls{opacity:0}.label{display:block;color:${neutralForegroundRest};cursor:pointer;font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight};margin-bottom:4px}.label__hidden{display:none;visibility:hidden}.start,.end{margin:auto;fill:currentcolor}.step-up-glyph,.step-down-glyph{display:block;padding:4px 10px;cursor:pointer}.step-up-glyph:before,.step-down-glyph:before{content:'';display:block;border:solid transparent 6px}.step-up-glyph:before{border-bottom-color:${neutralForegroundRest}}.step-down-glyph:before{border-top-color:${neutralForegroundRest}}::slotted(svg){width:16px;height:16px}.start{margin-inline-start:11px}.end{margin-inline-end:11px}:host(:hover:not([disabled])) .root{background:${neutralFillInputHover};border-color:${accentFillHover}}:host(:active:not([disabled])) .root{background:${neutralFillInputHover};border-color:${accentFillActive}}:host(:focus-within:not([disabled])) .root{border-color:${focusStrokeOuter$1};box-shadow:0 0 0 1px ${focusStrokeOuter$1} inset}:host(:hover:not([disabled])) .controls,:host(:focus-within:not([disabled])) .controls{opacity:1}:host([appearance="filled"]) .root{background:${neutralFillRest}}:host([appearance="filled"]:hover:not([disabled])) .root{background:${neutralFillHover}}:host([disabled]) .label,:host([readonly]) .label,:host([readonly]) .control,:host([disabled]) .control{cursor:${disabledCursor}}:host([disabled]){opacity:${disabledOpacity}}:host([disabled]) .control{border-color:${neutralStrokeRest}}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+                .root,:host([appearance="filled"]) .root{forced-color-adjust:none;background:${SystemColors.Field};border-color:${SystemColors.FieldText}}:host(:hover:not([disabled])) .root,:host([appearance="filled"]:hover:not([disabled])) .root,:host([appearance="filled"]:hover) .root{background:${SystemColors.Field};border-color:${SystemColors.Highlight}}.start,.end{fill:currentcolor}:host([disabled]){opacity:1}:host([disabled]) .root,:host([appearance="filled"]:hover[disabled]) .root{border-color:${SystemColors.GrayText};background:${SystemColors.Field}}:host(:focus-within:enabled) .root{border-color:${SystemColors.Highlight};box-shadow:0 0 0 1px ${SystemColors.Highlight} inset}input::placeholder{color:${SystemColors.GrayText}}`));
+
+/**
+ * @internal
+ */
+
+class NumberField$1 extends NumberField {
+  /**
+   * @internal
+   */
+  connectedCallback() {
+    super.connectedCallback();
+
+    if (!this.appearance) {
+      this.appearance = "outline";
+    }
+  }
+
+}
+
+__decorate$1([attr], NumberField$1.prototype, "appearance", void 0);
+/**
+ * Styles for NumberField
+ * @public
+ */
+
+
+const numberFieldStyles$1 = numberFieldStyles;
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#NumberField} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#numberFieldTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-number-field\>
+ *
+ * {@link https://developer.mozilla.org/en-US/docs/Web/API/ShadowRoot/delegatesFocus | delegatesFocus}
+ */
+
+const fastNumberField = NumberField$1.compose({
+  baseName: "number-field",
+  styles: numberFieldStyles,
+  template: numberFieldTemplate,
+  shadowOptions: {
+    delegatesFocus: true
+  },
+  stepDownGlyph: `
+        <span class="step-down-glyph" part="step-down-glyph"></span>
+    `,
+  stepUpGlyph: `
+        <span class="step-up-glyph" part="step-up-glyph"></span>
+    `
+});
+
+const pickerStyles = (context, definition) => css`
+        .region{z-index:1000;overflow:hidden;display:flex}.loaded{opacity:1;pointer-events:none}.loading-display,.no-options-display{background:${neutralLayerFloating$1};width:100%;min-height:calc(${heightNumber} * 1px);display:flex;flex-direction:column;align-items:center;justify-items:center;padding:calc(${designUnit} * 1px)}.loading-progress{width:42px;height:42px}.bottom{flex-direction:column}.top{flex-direction:column-reverse}`.withBehaviors(forcedColorsStylesheetBehavior(css``));
+
+const pickerMenuStyles = (context, definition) => css`
+        :host{background:${neutralLayerFloating$1};--elevation:11;z-index:1000;display:flex;width:100%;max-height:100%;min-height:58px;flex-direction:column;overflow-y:auto;overflow-x:hidden;pointer-events:auto;border-radius:calc(${controlCornerRadius} * 1px);padding:calc(${designUnit} * 1px) 0;border:calc(${strokeWidth} * 1px) solid transparent;${elevation}}.suggestions-available-alert{height:0;opacity:0;overflow:hidden}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+                :host{background:${SystemColors.Canvas};border-color:${SystemColors.CanvasText}}`));
+
+const pickerMenuOptionStyles = (context, definition) => css`
+:host{display:flex;align-items:center;justify-items:center;font-family:${bodyFont};border-radius:calc(${controlCornerRadius} * 1px);border:calc(${focusStrokeWidth} * 1px) solid transparent;box-sizing:border-box;color:${neutralForegroundRest};cursor:pointer;fill:currentcolor;font-size:${typeRampBaseFontSize};min-height:calc(${heightNumber} * 1px);line-height:${typeRampBaseLineHeight};margin:0 calc(${designUnit} * 1px);outline:none;overflow:hidden;padding:0 calc(${designUnit} * 2.25px);user-select:none;white-space:nowrap}:host(:${focusVisible}[role="listitem"]){border-color:${focusStrokeOuter$1};background:${neutralLayer3$1};color:${neutralForegroundRest}}:host(:hover){background:${neutralLayer3$1};color:${neutralForegroundRest}}:host([aria-selected="true"]){background:${accentFillActive};color:${foregroundOnAccentActive}}`.withBehaviors(forcedColorsStylesheetBehavior(css``));
+
+const pickerListStyles = (context, definition) => css`
+        .picker-list{display:flex;flex-direction:row;column-gap:calc(${designUnit} * 1px);row-gap:calc(${designUnit} * 1px);flex-wrap:wrap;z-index:1000}[role="combobox"]{min-width:260px;width:auto;box-sizing:border-box;color:${neutralForegroundRest};background:${neutralFillInputRest};border-radius:calc(${controlCornerRadius} * 1px);border:calc(${strokeWidth} * 1px) solid ${accentFillRest};height:calc(${heightNumber} * 1px);font-family:${bodyFont};outline:none;user-select:none;font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight};padding:0 calc(${designUnit} * 2px + 1px)}:active[role="combobox"]{background:${neutralFillInputHover};border-color:${accentFillActive}}::focus-within[role="combobox"]{border-color:${focusStrokeOuter$1};box-shadow:0 0 0 1px ${focusStrokeOuter$1} inset}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+                :hover[role="combobox"]{background:${SystemColors.Field};border-color:${SystemColors.Highlight}}:focus-within:enabled[role="combobox"]{border-color:${SystemColors.Highlight};box-shadow:0 0 0 1px ${SystemColors.Highlight} inset}input::placeholder{color:${SystemColors.GrayText}}`));
+
+const pickerListItemStyles = (context, definition) => css`
+:host{min-width:80px;display:flex;align-items:center;justify-items:center;font-family:${bodyFont};border-radius:calc(${controlCornerRadius} * 1px);border:calc(${focusStrokeWidth} * 1px) solid transparent;box-sizing:border-box;color:${neutralForegroundRest};cursor:pointer;fill:currentcolor;font-size:${typeRampBaseFontSize};height:calc(${heightNumber} * 1px);line-height:${typeRampBaseLineHeight};margin:0 calc(${designUnit} * 1px);outline:none;overflow:hidden;padding:0 calc(${designUnit} * 2.25px);user-select:none;white-space:nowrap}:host(:${focusVisible}){border-color:${focusStrokeOuter$1};background:${neutralLayer3$1};color:${neutralForegroundRest}}:host(:hover){background:${neutralLayer3$1};color:${neutralForegroundRest}}:host([aria-selected="true"]){background:${accentFillActive};color:${foregroundOnAccentActive}}`.withBehaviors(forcedColorsStylesheetBehavior(css``));
+
+/**
+ * The FAST  Picker Custom Element. Implements {@link @microsoft/fast-foundation#Picker},
+ * {@link @microsoft/fast-foundation#PickerTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * * Generates HTML Element: \<fast-picker\>
+ */
+
+const fastPicker = Picker.compose({
+  baseName: "picker",
+  template: pickerTemplate,
+  styles: pickerStyles,
+  shadowOptions: {
+    delegatesFocus: true
+  }
+});
+/**
+ * Styles for Picker
+ * @public
+ */
+
+const PickerStyles = pickerStyles;
+/**
+ *
+ *
+ *
+ * @public
+ * @remarks
+ * HTML Element: \<fast-picker-menu\>
+ */
+
+const fastPickerMenu = PickerMenu.compose({
+  baseName: "picker-menu",
+  template: pickerMenuTemplate,
+  styles: pickerMenuStyles
+});
+class FASTPickerMenu extends PickerMenu {}
+/**
+ * Styles for PickerMenu
+ * @public
+ */
+
+const PickerMenuStyles = pickerMenuStyles;
+/**
+ *
+ *
+ *
+ * @public
+ * @remarks
+ * HTML Element: \<fast-picker-menu-option\>
+ */
+
+const fastPickerMenuOption = PickerMenuOption.compose({
+  baseName: "picker-menu-option",
+  template: pickerMenuOptionTemplate,
+  styles: pickerMenuOptionStyles
+});
+class FASTPickerMenuOption extends PickerMenuOption {}
+/**
+ * Styles for PickerMenuOption
+ * @public
+ */
+
+const PickerMenuOptionStyles = pickerMenuOptionStyles;
+/**
+ *
+ *
+ *
+ * @public
+ * @remarks
+ * HTML Element: \<fast-picker-list\>
+ *
+ */
+
+const fastPickerList = PickerList.compose({
+  baseName: "picker-list",
+  template: pickerListTemplate,
+  styles: pickerListStyles,
+  shadowOptions: null
+});
+class FASTPickerList extends PickerList {}
+/**
+ * Styles for PickerList
+ * @public
+ */
+
+const PickerListStyles = pickerListStyles;
+/**
+ *
+ *
+ *
+ * @public
+ * @remarks
+ * HTML Element: \<fast-picker-list-item\>
+ */
+
+const fastPickerListItem = PickerListItem.compose({
+  baseName: "picker-list-item",
+  template: pickerListItemTemplate,
+  styles: pickerListItemStyles
+});
+class FASTPickerListItem extends PickerListItem {}
+/**
+ * Styles for PickerListItem
+ * @public
+ */
+
+const PickerListItemStyles = pickerListItemStyles;
+
+const progressRingStyles = (context, definition) => css`
+        ${display("flex")} :host{align-items:center;outline:none;height:calc(${heightNumber} * 1px);width:calc(${heightNumber} * 1px);margin:calc(${heightNumber} * 1px) 0}.progress{height:100%;width:100%}.background{stroke:${neutralFillRest};fill:none;stroke-width:2px}.determinate{stroke:${accentForegroundRest};fill:none;stroke-width:2px;stroke-linecap:round;transform-origin:50% 50%;transform:rotate(-90deg);transition:all 0.2s ease-in-out}.indeterminate-indicator-1{stroke:${accentForegroundRest};fill:none;stroke-width:2px;stroke-linecap:round;transform-origin:50% 50%;transform:rotate(-90deg);transition:all 0.2s ease-in-out;animation:spin-infinite 2s linear infinite}:host([paused]) .indeterminate-indicator-1{animation-play-state:paused;stroke:${neutralFillRest}}:host([paused]) .determinate{stroke:${neutralForegroundHint$1}}@keyframes spin-infinite{0%{stroke-dasharray:0.01px 43.97px;transform:rotate(0deg)}50%{stroke-dasharray:21.99px 21.99px;transform:rotate(450deg)}100%{stroke-dasharray:0.01px 43.97px;transform:rotate(1080deg)}}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+                .indeterminate-indicator-1,.determinate{stroke:${SystemColors.FieldText}}.background{stroke:${SystemColors.Field}}:host([paused]) .indeterminate-indicator-1{stroke:${SystemColors.Field}}:host([paused]) .determinate{stroke:${SystemColors.GrayText}}`));
+
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#BaseProgress} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#progressRingTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-progress-ring\>
+ */
+
+const fastProgressRing = BaseProgress.compose({
+  baseName: "progress-ring",
+  template: progressRingTemplate,
+  styles: progressRingStyles,
+  indeterminateIndicator: `
+        <svg class="progress" part="progress" viewBox="0 0 16 16">
+            <circle
+                class="background"
+                part="background"
+                cx="8px"
+                cy="8px"
+                r="7px"
+            ></circle>
+            <circle
+                class="indeterminate-indicator-1"
+                part="indeterminate-indicator-1"
+                cx="8px"
+                cy="8px"
+                r="7px"
+            ></circle>
+        </svg>
+    `
+});
+/**
+ * Styles for ProgressRing
+ * @public
+ */
+
+const progressRingStyles$1 = progressRingStyles;
+
+const progressStyles = (context, definition) => css`
+        ${display("flex")} :host{align-items:center;outline:none;height:calc(${designUnit} * 1px);margin:calc(${designUnit} * 1px) 0}.progress{background-color:${neutralFillRest};border-radius:calc(${designUnit} * 1px);width:100%;height:100%;display:flex;align-items:center;position:relative}.determinate{background-color:${accentForegroundRest};border-radius:calc(${designUnit} * 1px);height:100%;transition:all 0.2s ease-in-out;display:flex}.indeterminate{height:100%;border-radius:calc(${designUnit} * 1px);display:flex;width:100%;position:relative;overflow:hidden}.indeterminate-indicator-1{position:absolute;opacity:0;height:100%;background-color:${accentForegroundRest};border-radius:calc(${designUnit} * 1px);animation-timing-function:cubic-bezier(0.4,0,0.6,1);width:40%;animation:indeterminate-1 2s infinite}.indeterminate-indicator-2{position:absolute;opacity:0;height:100%;background-color:${accentForegroundRest};border-radius:calc(${designUnit} * 1px);animation-timing-function:cubic-bezier(0.4,0,0.6,1);width:60%;animation:indeterminate-2 2s infinite}:host([paused]) .indeterminate-indicator-1,:host([paused]) .indeterminate-indicator-2{animation-play-state:paused;background-color:${neutralFillRest}}:host([paused]) .determinate{background-color:${neutralForegroundHint$1}}@keyframes indeterminate-1{0%{opacity:1;transform:translateX(-100%)}70%{opacity:1;transform:translateX(300%)}70.01%{opacity:0}100%{opacity:0;transform:translateX(300%)}}@keyframes indeterminate-2{0%{opacity:0;transform:translateX(-150%)}29.99%{opacity:0}30%{opacity:1;transform:translateX(-150%)}100%{transform:translateX(166.66%);opacity:1}}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+                .progress{forced-color-adjust:none;background-color:${SystemColors.Field};box-shadow:0 0 0 1px inset ${SystemColors.FieldText}}.determinate,.indeterminate-indicator-1,.indeterminate-indicator-2{forced-color-adjust:none;background-color:${SystemColors.FieldText}}:host([paused]) .determinate,:host([paused]) .indeterminate-indicator-1,:host([paused]) .indeterminate-indicator-2{background-color:${SystemColors.GrayText}}`));
+
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#BaseProgress} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#progressTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-progress\>
+ */
+
+const fastProgress = BaseProgress.compose({
+  baseName: "progress",
+  template: progressTemplate,
+  styles: progressStyles,
+  indeterminateIndicator1: `
+        <span class="indeterminate-indicator-1" part="indeterminate-indicator-1"></span>
+    `,
+  indeterminateIndicator2: `
+        <span class="indeterminate-indicator-1" part="indeterminate-indicator-1"></span>
+    `
+});
+/**
+ * Styles for Progress
+ * @public
+ */
+
+const progressStyles$1 = progressStyles;
+
+const radioGroupStyles = (context, definition) => css`
+    ${display("flex")} :host{align-items:flex-start;margin:calc(${designUnit} * 1px) 0;flex-direction:column}.positioning-region{display:flex;flex-wrap:wrap}:host([orientation="vertical"]) .positioning-region{flex-direction:column}:host([orientation="horizontal"]) .positioning-region{flex-direction:row}`;
+
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#RadioGroup} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#radioGroupTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-radio-group\>
+ */
+
+const fastRadioGroup = RadioGroup.compose({
+  baseName: "radio-group",
+  template: radioGroupTemplate,
+  styles: radioGroupStyles
+});
+/**
+ * Styles for RadioGroup
+ * @public
+ */
+
+const radioGroupStyles$1 = radioGroupStyles;
+
+const radioStyles = (context, definition) => css`
+    ${display("inline-flex")} :host{--input-size:calc((${heightNumber} / 2) + ${designUnit});align-items:center;outline:none;margin:calc(${designUnit} * 1px) 0;user-select:none;position:relative;flex-direction:row;transition:all 0.2s ease-in-out}.control{position:relative;width:calc((${heightNumber} / 2 + ${designUnit}) * 1px);height:calc((${heightNumber} / 2 + ${designUnit}) * 1px);box-sizing:border-box;border-radius:999px;border:calc(${strokeWidth} * 1px) solid ${neutralStrokeRest};background:${neutralFillInputRest};outline:none;cursor:pointer}.label{font-family:${bodyFont};color:${neutralForegroundRest};padding-inline-start:calc(${designUnit} * 2px + 2px);margin-inline-end:calc(${designUnit} * 2px + 2px);cursor:pointer;font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight}}.label__hidden{display:none;visibility:hidden}.control,.checked-indicator{flex-shrink:0}.checked-indicator{position:absolute;top:5px;left:5px;right:5px;bottom:5px;border-radius:999px;display:inline-block;background:${foregroundOnAccentRest};fill:${foregroundOnAccentRest};opacity:0;pointer-events:none}:host(:not([disabled])) .control:hover{background:${neutralFillInputHover};border-color:${neutralStrokeHover}}:host(:not([disabled])) .control:active{background:${neutralFillInputActive};border-color:${neutralStrokeActive}}:host(:${focusVisible}) .control{box-shadow:0 0 0 2px ${fillColor},0 0 0 4px ${focusStrokeOuter$1}}:host([aria-checked="true"]) .control{background:${accentFillRest};border:calc(${strokeWidth} * 1px) solid ${accentFillRest}}:host([aria-checked="true"]:not([disabled])) .control:hover{background:${accentFillHover};border:calc(${strokeWidth} * 1px) solid ${accentFillHover}}:host([aria-checked="true"]:not([disabled])) .control:hover .checked-indicator{background:${foregroundOnAccentHover};fill:${foregroundOnAccentHover}}:host([aria-checked="true"]:not([disabled])) .control:active{background:${accentFillActive};border:calc(${strokeWidth} * 1px) solid ${accentFillActive}}:host([aria-checked="true"]:not([disabled])) .control:active .checked-indicator{background:${foregroundOnAccentActive};fill:${foregroundOnAccentActive}}:host([aria-checked="true"]:${focusVisible}:not([disabled])) .control{box-shadow:0 0 0 2px ${fillColor},0 0 0 4px ${focusStrokeOuter$1}}:host([disabled]) .label,:host([readonly]) .label,:host([readonly]) .control,:host([disabled]) .control{cursor:${disabledCursor}}:host([aria-checked="true"]) .checked-indicator{opacity:1}:host([disabled]){opacity:${disabledOpacity}}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+            .control,:host([aria-checked="true"]:not([disabled])) .control{forced-color-adjust:none;border-color:${SystemColors.FieldText};background:${SystemColors.Field}}:host(:not([disabled])) .control:hover{border-color:${SystemColors.Highlight};background:${SystemColors.Field}}:host([aria-checked="true"]:not([disabled])) .control:hover,:host([aria-checked="true"]:not([disabled])) .control:active{border-color:${SystemColors.Highlight};background:${SystemColors.Highlight}}:host([aria-checked="true"]) .checked-indicator{background:${SystemColors.Highlight};fill:${SystemColors.Highlight}}:host([aria-checked="true"]:not([disabled])) .control:hover .checked-indicator,:host([aria-checked="true"]:not([disabled])) .control:active .checked-indicator{background:${SystemColors.HighlightText};fill:${SystemColors.HighlightText}}:host(:${focusVisible}) .control{border-color:${SystemColors.Highlight};box-shadow:0 0 0 2px ${SystemColors.Field},0 0 0 4px ${SystemColors.FieldText}}:host([aria-checked="true"]:${focusVisible}:not([disabled])) .control{border-color:${SystemColors.Highlight};box-shadow:0 0 0 2px ${SystemColors.Field},0 0 0 4px ${SystemColors.FieldText}}:host([disabled]){forced-color-adjust:none;opacity:1}:host([disabled]) .label{color:${SystemColors.GrayText}}:host([disabled]) .control,:host([aria-checked="true"][disabled]) .control:hover,.control:active{background:${SystemColors.Field};border-color:${SystemColors.GrayText}}:host([disabled]) .checked-indicator,:host([aria-checked="true"][disabled]) .control:hover .checked-indicator{fill:${SystemColors.GrayText};background:${SystemColors.GrayText}}`));
+
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#Radio} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#radioTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-radio\>
+ */
+
+const fastRadio = Radio.compose({
+  baseName: "radio",
+  template: radioTemplate,
+  styles: radioStyles,
+  checkedIndicator: `
+        <div part="checked-indicator" class="checked-indicator"></div>
+    `
+});
+/**
+ * Styles for Radio
+ * @public
+ */
+
+const radioStyles$1 = radioStyles;
+
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#Select} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#selectTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-select\>
+ *
+ */
+
+const fastSelect = Select.compose({
+  baseName: "select",
+  template: selectTemplate,
+  styles: selectStyles,
+  indicator: `
+        <svg
+            class="select-indicator"
+            part="select-indicator"
+            viewBox="0 0 12 7"
+            xmlns="http://www.w3.org/2000/svg"
+        >
+            <path
+                d="M11.85.65c.2.2.2.5 0 .7L6.4 6.84a.55.55 0 01-.78 0L.14 1.35a.5.5 0 11.71-.7L6 5.8 11.15.65c.2-.2.5-.2.7 0z"
+            />
+        </svg>
+    `
+});
+/**
+ * Styles for Select
+ * @public
+ */
+
+const selectStyles$1 = selectStyles;
+
+const skeletonStyles = (context, definition) => css`
+        ${display("block")} :host{--skeleton-fill-default:#e1dfdd;overflow:hidden;width:100%;position:relative;background-color:var(--skeleton-fill,var(--skeleton-fill-default));--skeleton-animation-gradient-default:linear-gradient(
+                270deg,var(--skeleton-fill,var(--skeleton-fill-default)) 0%,#f3f2f1 51.13%,var(--skeleton-fill,var(--skeleton-fill-default)) 100%
+            );--skeleton-animation-timing-default:ease-in-out}:host([shape="rect"]){border-radius:calc(${controlCornerRadius} * 1px)}:host([shape="circle"]){border-radius:100%;overflow:hidden}object{position:absolute;width:100%;height:auto;z-index:2}object img{width:100%;height:auto}${display("block")} span.shimmer{position:absolute;width:100%;height:100%;background-image:var(
+                --skeleton-animation-gradient,var(--skeleton-animation-gradient-default)
+            );background-size:0px 0px / 90% 100%;background-repeat:no-repeat;background-color:var(--skeleton-animation-fill,${neutralFillRest});animation:shimmer 2s infinite;animation-timing-function:var(
+                --skeleton-animation-timing,var(--skeleton-timing-default)
+            );animation-direction:normal;z-index:1}::slotted(svg){z-index:2}::slotted(.pattern){width:100%;height:100%}@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+                :host{forced-color-adjust:none;background-color:${SystemColors.ButtonFace};box-shadow:0 0 0 1px ${SystemColors.ButtonText}}${display("block")} span.shimmer{display:none}`));
+
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#Skeleton} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#skeletonTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-skeleton\>
+ */
+
+const fastSkeleton = Skeleton.compose({
+  baseName: "skeleton",
+  template: skeletonTemplate,
+  styles: skeletonStyles
+});
+/**
+ * Styles for Skeleton
+ * @public
+ */
+
+const skeletonStyles$1 = skeletonStyles;
+
+const horizontalSliderStyles = css`
+    :host{align-self:start;grid-row:2;margin-top:-2px;height:calc((${heightNumber} / 2 + ${designUnit}) * 1px);width:auto}.container{grid-template-rows:auto auto;grid-template-columns:0}.label{margin:2px 0}`;
+const verticalSliderStyles = css`
+    :host{justify-self:start;grid-column:2;margin-left:2px;height:auto;width:calc((${heightNumber} / 2 + ${designUnit}) * 1px)}.container{grid-template-columns:auto auto;grid-template-rows:0;min-width:calc(var(--thumb-size) * 1px);height:calc(var(--thumb-size) * 1px)}.mark{transform:rotate(90deg);align-self:center}.label{margin-left:calc((${designUnit} / 2) * 3px);align-self:center}`;
+const sliderLabelStyles = (context, definition) => css`
+        ${display("block")} :host{font-family:${bodyFont};color:${neutralForegroundRest};fill:currentcolor}.root{position:absolute;display:grid}.container{display:grid;justify-self:center}.label{justify-self:center;align-self:center;white-space:nowrap;max-width:30px}.mark{width:calc((${designUnit} / 4) * 1px);height:calc(${heightNumber} * 0.25 * 1px);background:${neutralStrokeRest};justify-self:center}:host(.disabled){opacity:${disabledOpacity}}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+                .mark{forced-color-adjust:none;background:${SystemColors.FieldText}}:host(.disabled){forced-color-adjust:none;opacity:1}:host(.disabled) .label{color:${SystemColors.GrayText}}:host(.disabled) .mark{background:${SystemColors.GrayText}}`));
+
+/**
+ * @internal
+ */
+
+class SliderLabel$1 extends SliderLabel {
+  sliderOrientationChanged() {
+    if (this.sliderOrientation === Orientation.horizontal) {
+      this.$fastController.addStyles(horizontalSliderStyles);
+      this.$fastController.removeStyles(verticalSliderStyles);
+    } else {
+      this.$fastController.addStyles(verticalSliderStyles);
+      this.$fastController.removeStyles(horizontalSliderStyles);
+    }
+  }
+
+}
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#SliderLabel} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#sliderLabelTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-slider-label\>
+ */
+
+const fastSliderLabel = SliderLabel$1.compose({
+  baseName: "slider-label",
+  template: sliderLabelTemplate,
+  styles: sliderLabelStyles
+});
+/**
+ * Styles for SliderLabel
+ * @public
+ */
+
+const sliderLabelStyles$1 = sliderLabelStyles;
+
+const sliderStyles = (context, definition) => css`
+    :host([hidden]){display:none}${display("inline-grid")} :host{--thumb-size:calc(${heightNumber} * 0.5 - ${designUnit});--thumb-translate:calc(var(--thumb-size) * 0.5);--track-overhang:calc((${designUnit} / 2) * -1);--track-width:${designUnit};--fast-slider-height:calc(var(--thumb-size) * 10);align-items:center;width:100%;margin:calc(${designUnit} * 1px) 0;user-select:none;box-sizing:border-box;border-radius:calc(${controlCornerRadius} * 1px);outline:none;cursor:pointer}:host([orientation="horizontal"]) .positioning-region{position:relative;margin:0 8px;display:grid;grid-template-rows:calc(var(--thumb-size) * 1px) 1fr}:host([orientation="vertical"]) .positioning-region{position:relative;margin:0 8px;display:grid;height:100%;grid-template-columns:calc(var(--thumb-size) * 1px) 1fr}:host(:${focusVisible}) .thumb-cursor{box-shadow:0 0 0 2px ${fillColor},0 0 0 4px ${focusStrokeOuter$1}}.thumb-container{position:absolute;height:calc(var(--thumb-size) * 1px);width:calc(var(--thumb-size) * 1px);transition:all 0.2s ease;color:${neutralForegroundRest};fill:currentcolor}.thumb-cursor{border:none;width:calc(var(--thumb-size) * 1px);height:calc(var(--thumb-size) * 1px);background:${neutralForegroundRest};border-radius:calc(${controlCornerRadius} * 1px)}.thumb-cursor:hover{background:${neutralForegroundRest};border-color:${neutralStrokeHover}}.thumb-cursor:active{background:${neutralForegroundRest}}:host([orientation="horizontal"]) .thumb-container{transform:translateX(calc(var(--thumb-translate) * 1px))}:host([orientation="vertical"]) .thumb-container{transform:translateY(calc(var(--thumb-translate) * 1px))}:host([orientation="horizontal"]){min-width:calc(var(--thumb-size) * 1px)}:host([orientation="horizontal"]) .track{right:calc(var(--track-overhang) * 1px);left:calc(var(--track-overhang) * 1px);align-self:start;margin-top:calc((${designUnit} + calc(${density} + 2)) * 1px);height:calc(var(--track-width) * 1px)}:host([orientation="vertical"]) .track{top:calc(var(--track-overhang) * 1px);bottom:calc(var(--track-overhang) * 1px);width:calc(var(--track-width) * 1px);margin-inline-start:calc((${designUnit} + calc(${density} + 2)) * 1px);height:100%}.track{background:${neutralStrokeRest};position:absolute;border-radius:calc(${controlCornerRadius} * 1px)}:host([orientation="vertical"]){height:calc(var(--fast-slider-height) * 1px);min-height:calc(var(--thumb-size) * 1px);min-width:calc(${designUnit} * 20px)}:host([disabled]),:host([readonly]){cursor:${disabledCursor}}:host([disabled]){opacity:${disabledOpacity}}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+            .thumb-cursor{forced-color-adjust:none;border-color:${SystemColors.FieldText};background:${SystemColors.FieldText}}.thumb-cursor:hover,.thumb-cursor:active{background:${SystemColors.Highlight}}.track{forced-color-adjust:none;background:${SystemColors.FieldText}}:host(:${focusVisible}) .thumb-cursor{border-color:${SystemColors.Highlight}}:host([disabled]){opacity:1}:host([disabled]) .track,:host([disabled]) .thumb-cursor{forced-color-adjust:none;background:${SystemColors.GrayText}}:host(:${focusVisible}) .thumb-cursor{background:${SystemColors.Highlight};border-color:${SystemColors.Highlight};box-shadow:0 0 0 2px ${SystemColors.Field},0 0 0 4px ${SystemColors.FieldText}}`));
+
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#Slider} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#sliderTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-slider\>
+ */
+
+const fastSlider = Slider.compose({
+  baseName: "slider",
+  template: sliderTemplate,
+  styles: sliderStyles,
+  thumb: `
+        <div class="thumb-cursor"></div>
+    `
+});
+/**
+ * Styles for Slider
+ * @public
+ */
+
+const sliderStyles$1 = sliderStyles;
+
+const switchStyles = (context, definition) => css`
+    :host([hidden]){display:none}${display("inline-flex")} :host{align-items:center;outline:none;font-family:${bodyFont};margin:calc(${designUnit} * 1px) 0;${
+/*
+ * Chromium likes to select label text or the default slot when
+ * the checkbox is clicked. Maybe there is a better solution here?
+ */
+""} user-select:none}:host([disabled]){opacity:${disabledOpacity}}:host([disabled]) .label,:host([readonly]) .label,:host([readonly]) .switch,:host([disabled]) .switch{cursor:${disabledCursor}}.switch{position:relative;outline:none;box-sizing:border-box;width:calc(${heightNumber} * 1px);height:calc((${heightNumber} / 2 + ${designUnit}) * 1px);background:${neutralFillInputRest};border-radius:calc(${controlCornerRadius} * 1px);border:calc(${strokeWidth} * 1px) solid ${neutralStrokeRest}}.switch:hover{background:${neutralFillInputHover};border-color:${neutralStrokeHover};cursor:pointer}host([disabled]) .switch:hover,host([readonly]) .switch:hover{background:${neutralFillInputHover};border-color:${neutralStrokeHover};cursor:${disabledCursor}}:host(:not([disabled])) .switch:active{background:${neutralFillInputActive};border-color:${neutralStrokeActive}}:host(:${focusVisible}) .switch{box-shadow:0 0 0 2px ${fillColor},0 0 0 4px ${focusStrokeOuter$1}}.checked-indicator{position:absolute;top:5px;bottom:5px;background:${neutralForegroundRest};border-radius:calc(${controlCornerRadius} * 1px);transition:all 0.2s ease-in-out}.status-message{color:${neutralForegroundRest};cursor:pointer;font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight}}:host([disabled]) .status-message,:host([readonly]) .status-message{cursor:${disabledCursor}}.label{color:${neutralForegroundRest};${
+/* Need to discuss with Brian how HorizontalSpacingNumber can work. https://github.com/microsoft/fast/issues/2766 */
+""} margin-inline-end:calc(${designUnit} * 2px + 2px);font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight};cursor:pointer}.label__hidden{display:none;visibility:hidden}::slotted(*){${
+/* Need to discuss with Brian how HorizontalSpacingNumber can work. https://github.com/microsoft/fast/issues/2766 */
+""} margin-inline-start:calc(${designUnit} * 2px + 2px)}:host([aria-checked="true"]) .checked-indicator{background:${foregroundOnAccentRest}}:host([aria-checked="true"]) .switch{background:${accentFillRest};border-color:${accentFillRest}}:host([aria-checked="true"]:not([disabled])) .switch:hover{background:${accentFillHover};border-color:${accentFillHover}}:host([aria-checked="true"]:not([disabled])) .switch:hover .checked-indicator{background:${foregroundOnAccentHover}}:host([aria-checked="true"]:not([disabled])) .switch:active{background:${accentFillActive};border-color:${accentFillActive}}:host([aria-checked="true"]:not([disabled])) .switch:active .checked-indicator{background:${foregroundOnAccentActive}}:host([aria-checked="true"]:${focusVisible}:not([disabled])) .switch{box-shadow:0 0 0 2px ${fillColor},0 0 0 4px ${focusStrokeOuter$1}}.unchecked-message{display:block}.checked-message{display:none}:host([aria-checked="true"]) .unchecked-message{display:none}:host([aria-checked="true"]) .checked-message{display:block}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+            .checked-indicator,:host(:not([disabled])) .switch:active .checked-indicator{forced-color-adjust:none;background:${SystemColors.FieldText}}.switch{forced-color-adjust:none;background:${SystemColors.Field};border-color:${SystemColors.FieldText}}:host(:not([disabled])) .switch:hover{background:${SystemColors.HighlightText};border-color:${SystemColors.Highlight}}:host([aria-checked="true"]) .switch{background:${SystemColors.Highlight};border-color:${SystemColors.Highlight}}:host([aria-checked="true"]:not([disabled])) .switch:hover,:host(:not([disabled])) .switch:active{background:${SystemColors.HighlightText};border-color:${SystemColors.Highlight}}:host([aria-checked="true"]) .checked-indicator{background:${SystemColors.HighlightText}}:host([aria-checked="true"]:not([disabled])) .switch:hover .checked-indicator{background:${SystemColors.Highlight}}:host([disabled]){opacity:1}:host(:${focusVisible}) .switch{border-color:${SystemColors.Highlight};box-shadow:0 0 0 2px ${SystemColors.Field},0 0 0 4px ${SystemColors.FieldText}}:host([aria-checked="true"]:${focusVisible}:not([disabled])) .switch{box-shadow:0 0 0 2px ${SystemColors.Field},0 0 0 4px ${SystemColors.FieldText}}:host([disabled]) .checked-indicator{background:${SystemColors.GrayText}}:host([disabled]) .switch{background:${SystemColors.Field};border-color:${SystemColors.GrayText}}`), new DirectionalStyleSheetBehavior(css`
+                .checked-indicator{left:5px;right:calc(((${heightNumber} / 2) + 1) * 1px)}:host([aria-checked="true"]) .checked-indicator{left:calc(((${heightNumber} / 2) + 1) * 1px);right:5px}`, css`
+                .checked-indicator{right:5px;left:calc(((${heightNumber} / 2) + 1) * 1px)}:host([aria-checked="true"]) .checked-indicator{right:calc(((${heightNumber} / 2) + 1) * 1px);left:5px}`));
+
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#Switch} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#switchTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-switch\>
+ */
+
+const fastSwitch = Switch.compose({
+  baseName: "switch",
+  template: switchTemplate,
+  styles: switchStyles,
+  switch: `
+        <span class="checked-indicator" part="checked-indicator"></span>
+    `
+});
+/**
+ * Styles for Switch
+ * @public
+ */
+
+const switchStyles$1 = switchStyles;
+
+const tabsStyles = (context, definition) => css`
+        ${display("grid")} :host{box-sizing:border-box;font-family:${bodyFont};font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight};color:${neutralForegroundRest};grid-template-columns:auto 1fr auto;grid-template-rows:auto 1fr}.tablist{display:grid;grid-template-rows:auto auto;grid-template-columns:auto;position:relative;width:max-content;align-self:end;padding:calc(${designUnit} * 4px) calc(${designUnit} * 4px) 0;box-sizing:border-box}.start,.end{align-self:center}.activeIndicator{grid-row:2;grid-column:1;width:100%;height:5px;justify-self:center;background:${accentFillRest};margin-top:10px;border-radius:calc(${controlCornerRadius} * 1px)
+                calc(${controlCornerRadius} * 1px) 0 0}.activeIndicatorTransition{transition:transform 0.2s ease-in-out}.tabpanel{grid-row:2;grid-column-start:1;grid-column-end:4;position:relative}:host([orientation="vertical"]){grid-template-rows:auto 1fr auto;grid-template-columns:auto 1fr}:host([orientation="vertical"]) .tablist{grid-row-start:2;grid-row-end:2;display:grid;grid-template-rows:auto;grid-template-columns:auto 1fr;position:relative;width:max-content;justify-self:end;width:100%;padding:calc((${heightNumber} - ${designUnit}) * 1px)
+                calc(${designUnit} * 4px) calc((${heightNumber} - ${designUnit}) * 1px) 0}:host([orientation="vertical"]) .tabpanel{grid-column:2;grid-row-start:1;grid-row-end:4}:host([orientation="vertical"]) .end{grid-row:3}:host([orientation="vertical"]) .activeIndicator{grid-column:1;grid-row:1;width:5px;height:100%;margin-inline-end:10px;align-self:center;background:${accentFillRest};margin-top:0;border-radius:0 calc(${controlCornerRadius} * 1px)
+                calc(${controlCornerRadius} * 1px) 0}:host([orientation="vertical"]) .activeIndicatorTransition{transition:transform 0.2s linear}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+                .activeIndicator,:host([orientation="vertical"]) .activeIndicator{forced-color-adjust:none;background:${SystemColors.Highlight}}`));
+
+const tabStyles = (context, definition) => css`
+    ${display("inline-flex")} :host{box-sizing:border-box;font-family:${bodyFont};font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight};height:calc(${heightNumber} * 1px);padding:calc(${designUnit} * 5px) calc(${designUnit} * 4px);color:${neutralForegroundHint$1};fill:currentcolor;border-radius:calc(${controlCornerRadius} * 1px);border:calc(${strokeWidth} * 1px) solid transparent;align-items:center;justify-content:center;grid-row:1;cursor:pointer}:host(:hover){color:${neutralForegroundRest};fill:currentcolor}:host(:active){color:${neutralForegroundRest};fill:currentcolor}:host([disabled]){cursor:${disabledCursor};opacity:${disabledOpacity}}:host([disabled]:hover){color:${neutralForegroundHint$1};background:${neutralFillStealthRest}}:host([aria-selected="true"]){background:${neutralFillRest};color:${accentForegroundRest};fill:currentcolor}:host([aria-selected="true"]:hover){background:${neutralFillHover};color:${accentForegroundHover};fill:currentcolor}:host([aria-selected="true"]:active){background:${neutralFillActive};color:${accentForegroundActive};fill:currentcolor}:host(:${focusVisible}){outline:none;border:calc(${strokeWidth} * 1px) solid ${focusStrokeOuter$1};box-shadow:0 0 0 calc((${focusStrokeWidth} - ${strokeWidth}) * 1px)
+            ${focusStrokeOuter$1}}:host(:focus){outline:none}:host(.vertical){justify-content:end;grid-column:2}:host(.vertical[aria-selected="true"]){z-index:2}:host(.vertical:hover){color:${neutralForegroundRest}}:host(.vertical:active){color:${neutralForegroundRest}}:host(.vertical:hover[aria-selected="true"]){}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+            :host{forced-color-adjust:none;border-color:transparent;color:${SystemColors.ButtonText};fill:currentcolor}:host(:hover),:host(.vertical:hover),:host([aria-selected="true"]:hover){background:${SystemColors.Highlight};color:${SystemColors.HighlightText};fill:currentcolor}:host([aria-selected="true"]){background:${SystemColors.HighlightText};color:${SystemColors.Highlight};fill:currentcolor}:host(:${focusVisible}){border-color:${SystemColors.ButtonText};box-shadow:none}:host([disabled]),:host([disabled]:hover){opacity:1;color:${SystemColors.GrayText};background:${SystemColors.ButtonFace}}`));
+
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#Tab} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#tabTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-tab\>
+ */
+
+const fastTab = Tab.compose({
+  baseName: "tab",
+  template: tabTemplate,
+  styles: tabStyles
+});
+/**
+ * Styles for Tab
+ * @public
+ */
+
+const tabStyles$1 = tabStyles;
+
+const tabPanelStyles = (context, definition) => css`
+    ${display("flex")} :host{box-sizing:border-box;font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight};padding:0 calc((6 + (${designUnit} * 2 * ${density})) * 1px)}`;
+
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#TabPanel} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#tabPanelTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-tab-panel\>
+ */
+
+const fastTabPanel = TabPanel.compose({
+  baseName: "tab-panel",
+  template: tabPanelTemplate,
+  styles: tabPanelStyles
+});
+/**
+ * Styles for TabPanel
+ * @public
+ */
+
+const tabPanelStyles$1 = tabPanelStyles;
+
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#Tabs} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#tabsTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-tabs\>
+ */
+
+const fastTabs = Tabs.compose({
+  baseName: "tabs",
+  template: tabsTemplate,
+  styles: tabsStyles
+});
+/**
+ * Styles for Tabs
+ * @public
+ */
+
+const tabsStyles$1 = tabsStyles;
+
+const textAreaStyles = (context, definition) => css`
+    ${display("inline-block")} :host{font-family:${bodyFont};outline:none;user-select:none}.control{box-sizing:border-box;position:relative;color:${neutralForegroundRest};background:${neutralFillInputRest};border-radius:calc(${controlCornerRadius} * 1px);border:calc(${strokeWidth} * 1px) solid ${accentFillRest};height:calc(${heightNumber} * 2px);font:inherit;font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight};padding:calc(${designUnit} * 2px + 1px);width:100%;resize:none}.control:hover:enabled{background:${neutralFillInputHover};border-color:${accentFillHover}}.control:active:enabled{background:${neutralFillInputActive};border-color:${accentFillActive}}.control:hover,.control:${focusVisible},.control:disabled,.control:active{outline:none}:host(:focus-within) .control{border-color:${focusStrokeOuter$1};box-shadow:0 0 0 1px ${focusStrokeOuter$1} inset}:host([appearance="filled"]) .control{background:${neutralFillRest}}:host([appearance="filled"]:hover:not([disabled])) .control{background:${neutralFillHover}}:host([resize="both"]) .control{resize:both}:host([resize="horizontal"]) .control{resize:horizontal}:host([resize="vertical"]) .control{resize:vertical}.label{display:block;color:${neutralForegroundRest};cursor:pointer;font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight};margin-bottom:4px}.label__hidden{display:none;visibility:hidden}:host([disabled]) .label,:host([readonly]) .label,:host([readonly]) .control,:host([disabled]) .control{cursor:${disabledCursor}}:host([disabled]){opacity:${disabledOpacity}}:host([disabled]) .control{border-color:${neutralStrokeRest}}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+                :host([disabled]){opacity:1}`));
+
+/**
+ * @internal
+ */
+
+class TextArea$1 extends TextArea {
+  /**
+   * @internal
+   */
+  connectedCallback() {
+    super.connectedCallback();
+
+    if (!this.appearance) {
+      this.appearance = "outline";
+    }
+  }
+
+}
+
+__decorate$1([attr], TextArea$1.prototype, "appearance", void 0);
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#TextArea} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#textAreaTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-text-area\>
+ *
+ * {@link https://developer.mozilla.org/en-US/docs/Web/API/ShadowRoot/delegatesFocus | delegatesFocus}
+ */
+
+
+const fastTextArea = TextArea$1.compose({
+  baseName: "text-area",
+  template: textAreaTemplate,
+  styles: textAreaStyles,
+  shadowOptions: {
+    delegatesFocus: true
+  }
+});
+/**
+ * Styles for TextArea
+ * @public
+ */
+
+const textAreaStyles$1 = textAreaStyles;
+
+const textFieldStyles = (context, definition) => css`
+    ${display("inline-block")} :host{font-family:${bodyFont};outline:none;user-select:none}.root{box-sizing:border-box;position:relative;display:flex;flex-direction:row;color:${neutralForegroundRest};background:${neutralFillInputRest};border-radius:calc(${controlCornerRadius} * 1px);border:calc(${strokeWidth} * 1px) solid ${accentFillRest};height:calc(${heightNumber} * 1px)}.control{-webkit-appearance:none;font:inherit;background:transparent;border:0;color:inherit;height:calc(100% - 4px);width:100%;margin-top:auto;margin-bottom:auto;border:none;padding:0 calc(${designUnit} * 2px + 1px);font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight}}.control:hover,.control:${focusVisible},.control:disabled,.control:active{outline:none}.label{display:block;color:${neutralForegroundRest};cursor:pointer;font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight};margin-bottom:4px}.label__hidden{display:none;visibility:hidden}.start,.end{display:flex;margin:auto;fill:currentcolor}::slotted(svg){width:16px;height:16px}.start{margin-inline-start:11px}.end{margin-inline-end:11px}:host(:hover:not([disabled])) .root{background:${neutralFillInputHover};border-color:${accentFillHover}}:host(:active:not([disabled])) .root{background:${neutralFillInputHover};border-color:${accentFillActive}}:host(:focus-within:not([disabled])) .root{border-color:${focusStrokeOuter$1};box-shadow:0 0 0 1px ${focusStrokeOuter$1} inset}:host([appearance="filled"]) .root{background:${neutralFillRest}}:host([appearance="filled"]:hover:not([disabled])) .root{background:${neutralFillHover}}:host([disabled]) .label,:host([readonly]) .label,:host([readonly]) .control,:host([disabled]) .control{cursor:${disabledCursor}}:host([disabled]){opacity:${disabledOpacity}}:host([disabled]) .control{border-color:${neutralStrokeRest}}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+                .root,:host([appearance="filled"]) .root{forced-color-adjust:none;background:${SystemColors.Field};border-color:${SystemColors.FieldText}}:host(:hover:not([disabled])) .root,:host([appearance="filled"]:hover:not([disabled])) .root,:host([appearance="filled"]:hover) .root{background:${SystemColors.Field};border-color:${SystemColors.Highlight}}.start,.end{fill:currentcolor}:host([disabled]){opacity:1}:host([disabled]) .root,:host([appearance="filled"]:hover[disabled]) .root{border-color:${SystemColors.GrayText};background:${SystemColors.Field}}:host(:focus-within:enabled) .root{border-color:${SystemColors.Highlight};box-shadow:0 0 0 1px ${SystemColors.Highlight} inset}input::placeholder{color:${SystemColors.GrayText}}`));
+
+/**
+ * @internal
+ */
+
+class TextField$1 extends TextField {
+  /**
+   * @internal
+   */
+  connectedCallback() {
+    super.connectedCallback();
+
+    if (!this.appearance) {
+      this.appearance = "outline";
+    }
+  }
+
+}
+
+__decorate$1([attr], TextField$1.prototype, "appearance", void 0);
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#TextField} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#textFieldTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-text-field\>
+ *
+ * {@link https://developer.mozilla.org/en-US/docs/Web/API/ShadowRoot/delegatesFocus | delegatesFocus}
+ */
+
+
+const fastTextField = TextField$1.compose({
+  baseName: "text-field",
+  template: textFieldTemplate,
+  styles: textFieldStyles,
+  shadowOptions: {
+    delegatesFocus: true
+  }
+});
+/**
+ * Styles for TextField
+ * @public
+ */
+
+const textFieldStyles$1 = textFieldStyles;
+
+/**
+ * Styles for the {@link (FASTToolbar:class)|FASTToolbar component}.
+ *
+ * @public
+ */
+
+const toolbarStyles = (context, definition) => css`
+        ${display("inline-flex")} :host{--toolbar-item-gap:calc(
+                (var(--design-unit) + calc(var(--density) + 2)) * 1px
+            );background-color:${fillColor};border-radius:calc(${controlCornerRadius} * 1px);fill:currentcolor;padding:var(--toolbar-item-gap)}:host(${focusVisible}){outline:calc(${strokeWidth} * 1px) solid ${neutralStrokeFocus}}.positioning-region{align-items:flex-start;display:inline-flex;flex-flow:row wrap;justify-content:flex-start}:host([orientation="vertical"]) .positioning-region{flex-direction:column}::slotted(:not([slot])){flex:0 0 auto;margin:0 var(--toolbar-item-gap)}:host([orientation="vertical"]) ::slotted(:not([slot])){margin:var(--toolbar-item-gap) 0}.start,.end{display:flex;margin:auto;margin-inline:0}::slotted(svg){width:16px;height:16px}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+            :host(:${focusVisible}){box-shadow:0 0 0 calc(${focusStrokeWidth} * 1px) ${SystemColors.Highlight};color:${SystemColors.ButtonText};forced-color-adjust:none}`));
+
+/**
+ * @internal
+ */
+
+class Toolbar$1 extends Toolbar {
+  connectedCallback() {
+    super.connectedCallback();
+    const parent = composedParent(this);
+
+    if (parent) {
+      fillColor.setValueFor(this, target => neutralFillLayerRecipe.getValueFor(target).evaluate(target, fillColor.getValueFor(parent)));
+    }
+  }
+
+}
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#Toolbar} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#toolbarTemplate}
+ *
+ * @public
+ * @remarks
+ *
+ * Generates HTML Element: \<fast-toolbar\>
+ *
+ */
+
+const fastToolbar = Toolbar$1.compose({
+  baseName: "toolbar",
+  template: toolbarTemplate,
+  styles: toolbarStyles,
+  shadowOptions: {
+    delegatesFocus: true
+  }
+});
+/**
+ * Styles for Toolbar.
+ * @public
+ */
+
+const toolbarStyles$1 = toolbarStyles;
+
+const tooltipStyles = (context, definition) => css`
+        :host{contain:layout;overflow:visible;height:0;width:0}.tooltip{box-sizing:border-box;border-radius:calc(${controlCornerRadius} * 1px);border:calc(${strokeWidth} * 1px) solid ${focusStrokeOuter$1};box-shadow:0 0 0 1px ${focusStrokeOuter$1} inset;background:${neutralFillRest};color:${neutralForegroundRest};padding:4px;height:fit-content;width:fit-content;font-family:${bodyFont};font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight};white-space:nowrap;z-index:10000}${context.tagFor(AnchoredRegion)}{display:flex;justify-content:center;align-items:center;overflow:visible;flex-direction:row}${context.tagFor(AnchoredRegion)}.right,${context.tagFor(AnchoredRegion)}.left{flex-direction:column}${context.tagFor(AnchoredRegion)}.top .tooltip{margin-bottom:4px}${context.tagFor(AnchoredRegion)}.bottom .tooltip{margin-top:4px}${context.tagFor(AnchoredRegion)}.left .tooltip{margin-right:4px}${context.tagFor(AnchoredRegion)}.right .tooltip{margin-left:4px}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+                :host([disabled]){opacity:1}`));
+
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#Tooltip} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#tooltipTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-tooltip\>
+ */
+
+const fastTooltip = Tooltip.compose({
+  baseName: "tooltip",
+  template: tooltipTemplate,
+  styles: tooltipStyles
+});
+/**
+ * Styles for Tooltip
+ * @public
+ */
+
+const tooltipStyles$1 = tooltipStyles;
+
+const ltr$1 = css`
+    .expand-collapse-glyph{transform:rotate(0deg)}:host(.nested) .expand-collapse-button{left:var(--expand-collapse-button-nested-width,calc(${heightNumber} * -1px))}:host([selected])::after{left:calc(${focusStrokeWidth} * 1px)}:host([expanded]) > .positioning-region .expand-collapse-glyph{transform:rotate(45deg)}`;
+const rtl$1 = css`
+    .expand-collapse-glyph{transform:rotate(180deg)}:host(.nested) .expand-collapse-button{right:var(--expand-collapse-button-nested-width,calc(${heightNumber} * -1px))}:host([selected])::after{right:calc(${focusStrokeWidth} * 1px)}:host([expanded]) > .positioning-region .expand-collapse-glyph{transform:rotate(135deg)}`;
+const expandCollapseButtonSize = cssPartial`((${baseHeightMultiplier} / 2) * ${designUnit}) + ((${designUnit} * ${density}) / 2)`;
+const expandCollapseHoverBehavior = DesignToken.create("tree-item-expand-collapse-hover").withDefault(target => {
+  const recipe = neutralFillStealthRecipe.getValueFor(target);
+  return recipe.evaluate(target, recipe.evaluate(target).hover).hover;
+});
+const selectedExpandCollapseHoverBehavior = DesignToken.create("tree-item-expand-collapse-selected-hover").withDefault(target => {
+  const baseRecipe = neutralFillRecipe.getValueFor(target);
+  const buttonRecipe = neutralFillStealthRecipe.getValueFor(target);
+  return buttonRecipe.evaluate(target, baseRecipe.evaluate(target).rest).hover;
+});
+const treeItemStyles = (context, definition) => css`
+    ${display("block")} :host{contain:content;position:relative;outline:none;color:${neutralForegroundRest};background:${neutralFillStealthRest};cursor:pointer;font-family:${bodyFont};--expand-collapse-button-size:calc(${heightNumber} * 1px);--tree-item-nested-width:0}:host(:focus) > .positioning-region{outline:none}:host(:focus) .content-region{outline:none}:host(:${focusVisible}) .positioning-region{border:${focusStrokeOuter$1} calc(${strokeWidth} * 1px) solid;border-radius:calc(${controlCornerRadius} * 1px);color:${neutralForegroundRest}}.positioning-region{display:flex;position:relative;box-sizing:border-box;border:transparent calc(${strokeWidth} * 1px) solid;height:calc((${heightNumber} + 1) * 1px)}.positioning-region::before{content:"";display:block;width:var(--tree-item-nested-width);flex-shrink:0}.positioning-region:hover{background:${neutralFillStealthHover}}.positioning-region:active{background:${neutralFillStealthActive}}.content-region{display:inline-flex;align-items:center;white-space:nowrap;width:100%;height:calc(${heightNumber} * 1px);margin-inline-start:calc(${designUnit} * 2px + 8px);font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight};font-weight:400}.items{display:none;font-size:calc(1em + (${designUnit} + 16) * 1px)}.expand-collapse-button{background:none;border:none;outline:none;width:calc((${expandCollapseButtonSize} + (${designUnit} * 2)) * 1px);height:calc((${expandCollapseButtonSize} + (${designUnit} * 2)) * 1px);padding:0;display:flex;justify-content:center;align-items:center;cursor:pointer;margin-left:6px;margin-right:6px}.expand-collapse-glyph{width:16px;height:16px;transition:transform 0.1s linear;pointer-events:none;fill:currentcolor}.start,.end{display:flex;fill:currentcolor}::slotted(svg){width:16px;height:16px}.start{margin-inline-end:calc(${designUnit} * 2px + 2px)}.end{margin-inline-start:calc(${designUnit} * 2px + 2px)}:host([expanded]) > .items{display:block}:host([disabled]) .content-region{opacity:${disabledOpacity};cursor:${disabledCursor}}:host(.nested) .content-region{position:relative;margin-inline-start:var(--expand-collapse-button-size)}:host(.nested) .expand-collapse-button{position:absolute}:host(.nested) .expand-collapse-button:hover{background:${expandCollapseHoverBehavior}}:host([selected]) .positioning-region{background:${neutralFillRest}}:host([selected]) .expand-collapse-button:hover{background:${selectedExpandCollapseHoverBehavior}}:host([selected])::after{background:${accentForegroundRest};border-radius:calc(${controlCornerRadius} * 1px);content:"";display:block;position:absolute;top:calc((${heightNumber} / 4) * 1px);width:3px;height:calc((${heightNumber} / 2) * 1px)}::slotted(${context.tagFor(TreeItem)}){--tree-item-nested-width:1em;--expand-collapse-button-nested-width:calc(${heightNumber} * -1px)}`.withBehaviors(new DirectionalStyleSheetBehavior(ltr$1, rtl$1), forcedColorsStylesheetBehavior(css`
+            :host{forced-color-adjust:none;border-color:transparent;background:${SystemColors.Field};color:${SystemColors.FieldText}}:host .content-region .expand-collapse-glyph{fill:${SystemColors.FieldText}}:host .positioning-region:hover,:host([selected]) .positioning-region{background:${SystemColors.Highlight}}:host .positioning-region:hover .content-region,:host([selected]) .positioning-region .content-region{color:${SystemColors.HighlightText}}:host .positioning-region:hover .content-region .expand-collapse-glyph,:host .positioning-region:hover .content-region .start,:host .positioning-region:hover .content-region .end,:host([selected]) .content-region .expand-collapse-glyph,:host([selected]) .content-region .start,:host([selected]) .content-region .end{fill:${SystemColors.HighlightText}}:host([selected])::after{background:${SystemColors.Field}}:host(:${focusVisible}) .positioning-region{border-color:${SystemColors.FieldText};box-shadow:0 0 0 2px inset ${SystemColors.Field};color:${SystemColors.FieldText}}:host([disabled]) .content-region,:host([disabled]) .positioning-region:hover .content-region{opacity:1;color:${SystemColors.GrayText}}:host([disabled]) .content-region .expand-collapse-glyph,:host([disabled]) .content-region .start,:host([disabled]) .content-region .end,:host([disabled]) .positioning-region:hover .content-region .expand-collapse-glyph,:host([disabled]) .positioning-region:hover .content-region .start,:host([disabled]) .positioning-region:hover .content-region .end{fill:${SystemColors.GrayText}}:host([disabled]) .positioning-region:hover{background:${SystemColors.Field}}.expand-collapse-glyph,.start,.end{fill:${SystemColors.FieldText}}:host(.nested) .expand-collapse-button:hover{background:${SystemColors.Field}}:host(.nested) .expand-collapse-button:hover .expand-collapse-glyph{fill:${SystemColors.FieldText}}`));
+
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#TreeItem} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#treeItemTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-tree-item\>
+ *
+ */
+
+const fastTreeItem = TreeItem.compose({
+  baseName: "tree-item",
+  template: treeItemTemplate,
+  styles: treeItemStyles,
+  expandCollapseGlyph: `
+        <svg
+            viewBox="0 0 16 16"
+            xmlns="http://www.w3.org/2000/svg"
+            class="expand-collapse-glyph"
+        >
+            <path
+                d="M5.00001 12.3263C5.00124 12.5147 5.05566 12.699 5.15699 12.8578C5.25831 13.0167 5.40243 13.1437 5.57273 13.2242C5.74304 13.3047 5.9326 13.3354 6.11959 13.3128C6.30659 13.2902 6.4834 13.2152 6.62967 13.0965L10.8988 8.83532C11.0739 8.69473 11.2153 8.51658 11.3124 8.31402C11.4096 8.11146 11.46 7.88966 11.46 7.66499C11.46 7.44033 11.4096 7.21853 11.3124 7.01597C11.2153 6.81341 11.0739 6.63526 10.8988 6.49467L6.62967 2.22347C6.48274 2.10422 6.30501 2.02912 6.11712 2.00691C5.92923 1.9847 5.73889 2.01628 5.56823 2.09799C5.39757 2.17969 5.25358 2.30817 5.153 2.46849C5.05241 2.62882 4.99936 2.8144 5.00001 3.00369V12.3263Z"
+            />
+        </svg>
+    `
+});
+/**
+ * Styles for TreeItem
+ * @public
+ */
+
+const treeItemStyles$1 = treeItemStyles;
+
+const treeViewStyles = (context, definition) => css`
+    :host([hidden]){display:none}${display("flex")} :host{flex-direction:column;align-items:stretch;min-width:fit-content;font-size:0}:host:focus-visible{outline:none}`;
+
+/**
+ * A function that returns a {@link @microsoft/fast-foundation#TreeView} registration for configuring the component with a DesignSystem.
+ * Implements {@link @microsoft/fast-foundation#treeViewTemplate}
+ *
+ *
+ * @public
+ * @remarks
+ * Generates HTML Element: \<fast-tree-view\>
+ *
+ */
+
+const fastTreeView = TreeView.compose({
+  baseName: "tree-view",
+  template: treeViewTemplate,
+  styles: treeViewStyles
+});
+/**
+ * Styles for TreeView
+ * @public
+ */
+
+const treeViewStyles$1 = treeViewStyles;
+
+/**
+ * Export all custom element definitions
+ */
+/**
+ * All Web Components
+ * @public
+ * @remarks
+ * This object can be passed directly to the Design System's `register` method to
+ * statically link and register all available components.
+ */
+
+const allComponents = {
+  fastAccordion,
+  fastAccordionItem,
+  fastAnchor,
+  fastAnchoredRegion,
+  fastAvatar,
+  fastBadge,
+  fastBreadcrumb,
+  fastBreadcrumbItem,
+  fastButton,
+  fastCard,
+  fastCheckbox,
+  fastCombobox,
+  fastDataGrid,
+  fastDataGridCell,
+  fastDataGridRow,
+  fastDesignSystemProvider,
+  fastDialog,
+  fastDisclosure,
+  fastDivider,
+  fastFlipper,
+  fastHorizontalScroll,
+  fastListbox,
+  fastOption,
+  fastMenu,
+  fastMenuItem,
+  fastNumberField,
+  fastPicker,
+  fastPickerList,
+  fastPickerListItem,
+  fastPickerMenu,
+  fastPickerMenuOption,
+  fastProgress,
+  fastProgressRing,
+  fastRadio,
+  fastRadioGroup,
+  fastSelect,
+  fastSkeleton,
+  fastSlider,
+  fastSliderLabel,
+  fastSwitch,
+  fastTabs,
+  fastTab,
+  fastTabPanel,
+  fastTextArea,
+  fastTextField,
+  fastTooltip,
+  fastToolbar,
+  fastTreeView,
+  fastTreeItem,
+
+  register(container) {
+    if (!container) {
+      // preserve backward compatibility with code that loops through
+      // the values of this object and calls them as funcs with no args
+      return;
+    }
+
+    for (const key in this) {
+      if (key === "register") {
+        continue;
+      }
+
+      this[key]().register(container);
+    }
+  }
+
+};
+
+/**
+ * Provides a design system for the specified element either by returning one that was
+ * already created for that element or creating one.
+ * @param element - The element to root the design system at. By default, this is the body.
+ * @returns A FAST Design System
+ * @public
+ */
+
+function provideFASTDesignSystem(element) {
+  return DesignSystem.getOrCreate(element).withPrefix("fast");
+}
 
 // TODO: Is exporting Foundation still necessary with the updated API's?
 /**
- * TODO rename this to FASTDesignSystem when {@link @FASTDesignSystem} interface is removed.
+ * The global FAST Design System.
+ * @remarks
+ * Only available if the components are added through a script tag
+ * rather than a module/build system.
  */
 
-const fastDesignSystem = DesignSystem.getOrCreate().register(...Object.values(allComponents).map(definition => definition()));
+const FASTDesignSystem = provideFASTDesignSystem().register(allComponents);
 
-export { Accordion, AccordionItem, Anchor$1 as Anchor, AnchoredRegion, Avatar$1 as Avatar, Badge, Breadcrumb, BreadcrumbItem, Button$1 as Button, Card$1 as Card, Checkbox, Combobox, DataGrid, DataGridCell, DataGridRow, DesignSystemProvider, Dialog, DirectionalStyleSheetBehavior, Disclosure$1 as Disclosure, Divider, FASTPickerList, FASTPickerListItem, FASTPickerMenu, FASTPickerMenuOption, Flipper, HorizontalScroll$1 as HorizontalScroll, Listbox, ListboxOption, Menu, MenuItem, NumberField$1 as NumberField, PaletteRGB, Picker, PickerListItemStyles, PickerListStyles, PickerMenuOptionStyles, PickerMenuStyles, PickerStyles, BaseProgress as Progress, BaseProgress as ProgressRing, Radio, RadioGroup, Select, Skeleton, Slider, SliderLabel$1 as SliderLabel, StandardLuminance, SwatchRGB, Switch, Tab, TabPanel, Tabs, TextArea$1 as TextArea, TextField$1 as TextField, Toolbar$1 as Toolbar, Tooltip, TreeItem, TreeView, accentFillActive, accentFillActiveDelta, accentFillFocus, accentFillFocusDelta, accentFillHover, accentFillHoverDelta, accentFillRecipe, accentFillRest, accentFillRestDelta, accentForegroundActive, accentForegroundActiveDelta, accentForegroundFocus, accentForegroundFocusDelta, accentForegroundHover, accentForegroundHoverDelta, accentForegroundRecipe, accentForegroundRest, accentForegroundRestDelta, accentPalette, accordionItemStyles$1 as accordionItemStyles, accordionStyles$1 as accordionStyles, allComponents, anchorStyles$1 as anchorStyles, anchoredRegionStyles$1 as anchoredRegionStyles, avatarStyles$1 as avatarStyles, badgeStyles$1 as badgeStyles, baseHeightMultiplier, baseHorizontalSpacingMultiplier, baseLayerLuminance, bodyFont, buttonStyles$1 as buttonStyles, cardStyles$1 as cardStyles, checkboxStyles$1 as checkboxStyles, comboboxStyles$1 as comboboxStyles, controlCornerRadius, dataGridCellStyles$1 as dataGridCellStyles, dataGridRowStyles$1 as dataGridRowStyles, dataGridStyles$1 as dataGridStyles, density, designUnit, dialogStyles$1 as dialogStyles, direction, disabledOpacity, disclosureStyles$1 as disclosureStyles, dividerStyles$1 as dividerStyles, fastAccordion, fastAccordionItem, fastAnchor, fastAnchoredRegion, fastAvatar, fastBadge, fastBreadcrumb, fastBreadcrumbItem, fastButton, fastCard, fastCheckbox, fastCombobox, fastDataGrid, fastDataGridCell, fastDataGridRow, fastDesignSystem, fastDesignSystemProvider, fastDialog, fastDisclosure, fastDivider, fastFlipper, fastHorizontalScroll, fastListbox, fastMenu, fastMenuItem, fastNumberField, fastOption, fastPicker, fastPickerList, fastPickerListItem, fastPickerMenu, fastPickerMenuOption, fastProgress, fastProgressRing, fastRadio, fastRadioGroup, fastSelect, fastSkeleton, fastSlider, fastSliderLabel, fastSwitch, fastTab, fastTabPanel, fastTabs, fastTextArea, fastTextField, fastToolbar, fastTooltip, fastTreeItem, fastTreeView, fillColor, flipperStyles$1 as flipperStyles, focusStrokeInner$1 as focusStrokeInner, focusStrokeInnerRecipe, focusStrokeOuter$1 as focusStrokeOuter, focusStrokeOuterRecipe, focusStrokeWidth, foregroundOnAccentActive, foregroundOnAccentActiveLarge, foregroundOnAccentFocus, foregroundOnAccentFocusLarge, foregroundOnAccentHover, foregroundOnAccentHoverLarge, foregroundOnAccentLargeRecipe, foregroundOnAccentRecipe, foregroundOnAccentRest, foregroundOnAccentRestLarge, imgTemplate, isDark, listboxStyles$1 as listboxStyles, menuItemStyles$1 as menuItemStyles, menuStyles$1 as menuStyles, neutralFillActive, neutralFillActiveDelta, neutralFillFocus, neutralFillFocusDelta, neutralFillHover, neutralFillHoverDelta, neutralFillInputActive, neutralFillInputActiveDelta, neutralFillInputFocus, neutralFillInputFocusDelta, neutralFillInputHover, neutralFillInputHoverDelta, neutralFillInputRecipe, neutralFillInputRest, neutralFillInputRestDelta, neutralFillLayerRecipe, neutralFillLayerRest, neutralFillLayerRestDelta, neutralFillRecipe, neutralFillRest, neutralFillRestDelta, neutralFillStealthActive, neutralFillStealthActiveDelta, neutralFillStealthFocus, neutralFillStealthFocusDelta, neutralFillStealthHover, neutralFillStealthHoverDelta, neutralFillStealthRecipe, neutralFillStealthRest, neutralFillStealthRestDelta, neutralFillStrongActive, neutralFillStrongActiveDelta, neutralFillStrongFocus, neutralFillStrongFocusDelta, neutralFillStrongHover, neutralFillStrongHoverDelta, neutralFillStrongRecipe, neutralFillStrongRest, neutralFillStrongRestDelta, neutralForegroundHint$1 as neutralForegroundHint, neutralForegroundHintRecipe, neutralForegroundRecipe, neutralForegroundRest, neutralLayer1$1 as neutralLayer1, neutralLayer1Recipe, neutralLayer2$1 as neutralLayer2, neutralLayer2Recipe, neutralLayer3$1 as neutralLayer3, neutralLayer3Recipe, neutralLayer4$1 as neutralLayer4, neutralLayer4Recipe, neutralLayerCardContainer$1 as neutralLayerCardContainer, neutralLayerCardContainerRecipe, neutralLayerFloating$1 as neutralLayerFloating, neutralLayerFloatingRecipe, neutralPalette, neutralStrokeActive, neutralStrokeActiveDelta, neutralStrokeDividerRecipe, neutralStrokeDividerRest, neutralStrokeDividerRestDelta, neutralStrokeFocus, neutralStrokeFocusDelta, neutralStrokeHover, neutralStrokeHoverDelta, neutralStrokeRecipe, neutralStrokeRest, neutralStrokeRestDelta, numberFieldStyles$1 as numberFieldStyles, optionStyles$1 as optionStyles, progressRingStyles$1 as progressRingStyles, progressStyles$1 as progressStyles, radioGroupStyles$1 as radioGroupStyles, radioStyles$1 as radioStyles, selectStyles$1 as selectStyles, skeletonStyles$1 as skeletonStyles, sliderLabelStyles$1 as sliderLabelStyles, sliderStyles$1 as sliderStyles, strokeWidth, switchStyles$1 as switchStyles, tabPanelStyles$1 as tabPanelStyles, tabStyles$1 as tabStyles, tabsStyles$1 as tabsStyles, textAreaStyles$1 as textAreaStyles, textFieldStyles$1 as textFieldStyles, toolbarStyles$1 as toolbarStyles, tooltipStyles$1 as tooltipStyles, treeItemStyles$1 as treeItemStyles, treeViewStyles$1 as treeViewStyles, typeRampBaseFontSize, typeRampBaseLineHeight, typeRampMinus1FontSize, typeRampMinus1LineHeight, typeRampMinus2FontSize, typeRampMinus2LineHeight, typeRampPlus1FontSize, typeRampPlus1LineHeight, typeRampPlus2FontSize, typeRampPlus2LineHeight, typeRampPlus3FontSize, typeRampPlus3LineHeight, typeRampPlus4FontSize, typeRampPlus4LineHeight, typeRampPlus5FontSize, typeRampPlus5LineHeight, typeRampPlus6FontSize, typeRampPlus6LineHeight };
+export { Accordion, AccordionItem, Anchor$1 as Anchor, AnchoredRegion, Avatar$1 as Avatar, Badge, Breadcrumb, BreadcrumbItem, Button$1 as Button, Card$1 as Card, Checkbox, Combobox, DataGrid, DataGridCell, DataGridRow, DesignSystemProvider, Dialog, DirectionalStyleSheetBehavior, Disclosure$1 as Disclosure, Divider, FASTDesignSystem, FASTPickerList, FASTPickerListItem, FASTPickerMenu, FASTPickerMenuOption, Flipper, HorizontalScroll$1 as HorizontalScroll, Listbox, ListboxOption, Menu, MenuItem, NumberField$1 as NumberField, PaletteRGB, Picker, PickerListItemStyles, PickerListStyles, PickerMenuOptionStyles, PickerMenuStyles, PickerStyles, BaseProgress as Progress, BaseProgress as ProgressRing, Radio, RadioGroup, Select, Skeleton, Slider, SliderLabel$1 as SliderLabel, StandardLuminance, SwatchRGB, Switch, Tab, TabPanel, Tabs, TextArea$1 as TextArea, TextField$1 as TextField, Toolbar$1 as Toolbar, Tooltip, TreeItem, TreeView, accentFillActive, accentFillActiveDelta, accentFillFocus, accentFillFocusDelta, accentFillHover, accentFillHoverDelta, accentFillRecipe, accentFillRest, accentFillRestDelta, accentForegroundActive, accentForegroundActiveDelta, accentForegroundFocus, accentForegroundFocusDelta, accentForegroundHover, accentForegroundHoverDelta, accentForegroundRecipe, accentForegroundRest, accentForegroundRestDelta, accentPalette, accordionItemStyles$1 as accordionItemStyles, accordionStyles$1 as accordionStyles, allComponents, anchorStyles$1 as anchorStyles, anchoredRegionStyles$1 as anchoredRegionStyles, avatarStyles$1 as avatarStyles, badgeStyles$1 as badgeStyles, baseHeightMultiplier, baseHorizontalSpacingMultiplier, baseLayerLuminance, bodyFont, buttonStyles$1 as buttonStyles, cardStyles$1 as cardStyles, checkboxStyles$1 as checkboxStyles, comboboxStyles$1 as comboboxStyles, controlCornerRadius, dataGridCellStyles$1 as dataGridCellStyles, dataGridRowStyles$1 as dataGridRowStyles, dataGridStyles$1 as dataGridStyles, density, designSystemProviderStyles, designSystemProviderTemplate, designUnit, dialogStyles$1 as dialogStyles, direction, disabledOpacity, disclosureStyles$1 as disclosureStyles, dividerStyles$1 as dividerStyles, fastAccordion, fastAccordionItem, fastAnchor, fastAnchoredRegion, fastAvatar, fastBadge, fastBreadcrumb, fastBreadcrumbItem, fastButton, fastCard, fastCheckbox, fastCombobox, fastDataGrid, fastDataGridCell, fastDataGridRow, fastDesignSystemProvider, fastDialog, fastDisclosure, fastDivider, fastFlipper, fastHorizontalScroll, fastListbox, fastMenu, fastMenuItem, fastNumberField, fastOption, fastPicker, fastPickerList, fastPickerListItem, fastPickerMenu, fastPickerMenuOption, fastProgress, fastProgressRing, fastRadio, fastRadioGroup, fastSelect, fastSkeleton, fastSlider, fastSliderLabel, fastSwitch, fastTab, fastTabPanel, fastTabs, fastTextArea, fastTextField, fastToolbar, fastTooltip, fastTreeItem, fastTreeView, fillColor, flipperStyles$1 as flipperStyles, focusStrokeInner$1 as focusStrokeInner, focusStrokeInnerRecipe, focusStrokeOuter$1 as focusStrokeOuter, focusStrokeOuterRecipe, focusStrokeWidth, foregroundOnAccentActive, foregroundOnAccentActiveLarge, foregroundOnAccentFocus, foregroundOnAccentFocusLarge, foregroundOnAccentHover, foregroundOnAccentHoverLarge, foregroundOnAccentLargeRecipe, foregroundOnAccentRecipe, foregroundOnAccentRest, foregroundOnAccentRestLarge, imgTemplate, isDark, listboxStyles$1 as listboxStyles, menuItemStyles$1 as menuItemStyles, menuStyles$1 as menuStyles, neutralFillActive, neutralFillActiveDelta, neutralFillFocus, neutralFillFocusDelta, neutralFillHover, neutralFillHoverDelta, neutralFillInputActive, neutralFillInputActiveDelta, neutralFillInputFocus, neutralFillInputFocusDelta, neutralFillInputHover, neutralFillInputHoverDelta, neutralFillInputRecipe, neutralFillInputRest, neutralFillInputRestDelta, neutralFillLayerRecipe, neutralFillLayerRest, neutralFillLayerRestDelta, neutralFillRecipe, neutralFillRest, neutralFillRestDelta, neutralFillStealthActive, neutralFillStealthActiveDelta, neutralFillStealthFocus, neutralFillStealthFocusDelta, neutralFillStealthHover, neutralFillStealthHoverDelta, neutralFillStealthRecipe, neutralFillStealthRest, neutralFillStealthRestDelta, neutralFillStrongActive, neutralFillStrongActiveDelta, neutralFillStrongFocus, neutralFillStrongFocusDelta, neutralFillStrongHover, neutralFillStrongHoverDelta, neutralFillStrongRecipe, neutralFillStrongRest, neutralFillStrongRestDelta, neutralForegroundHint$1 as neutralForegroundHint, neutralForegroundHintRecipe, neutralForegroundRecipe, neutralForegroundRest, neutralLayer1$1 as neutralLayer1, neutralLayer1Recipe, neutralLayer2$1 as neutralLayer2, neutralLayer2Recipe, neutralLayer3$1 as neutralLayer3, neutralLayer3Recipe, neutralLayer4$1 as neutralLayer4, neutralLayer4Recipe, neutralLayerCardContainer$1 as neutralLayerCardContainer, neutralLayerCardContainerRecipe, neutralLayerFloating$1 as neutralLayerFloating, neutralLayerFloatingRecipe, neutralPalette, neutralStrokeActive, neutralStrokeActiveDelta, neutralStrokeDividerRecipe, neutralStrokeDividerRest, neutralStrokeDividerRestDelta, neutralStrokeFocus, neutralStrokeFocusDelta, neutralStrokeHover, neutralStrokeHoverDelta, neutralStrokeRecipe, neutralStrokeRest, neutralStrokeRestDelta, numberFieldStyles$1 as numberFieldStyles, optionStyles$1 as optionStyles, progressRingStyles$1 as progressRingStyles, progressStyles$1 as progressStyles, provideFASTDesignSystem, radioGroupStyles$1 as radioGroupStyles, radioStyles$1 as radioStyles, selectStyles$1 as selectStyles, skeletonStyles$1 as skeletonStyles, sliderLabelStyles$1 as sliderLabelStyles, sliderStyles$1 as sliderStyles, strokeWidth, switchStyles$1 as switchStyles, tabPanelStyles$1 as tabPanelStyles, tabStyles$1 as tabStyles, tabsStyles$1 as tabsStyles, textAreaStyles$1 as textAreaStyles, textFieldStyles$1 as textFieldStyles, toolbarStyles$1 as toolbarStyles, tooltipStyles$1 as tooltipStyles, treeItemStyles$1 as treeItemStyles, treeViewStyles$1 as treeViewStyles, typeRampBaseFontSize, typeRampBaseLineHeight, typeRampMinus1FontSize, typeRampMinus1LineHeight, typeRampMinus2FontSize, typeRampMinus2LineHeight, typeRampPlus1FontSize, typeRampPlus1LineHeight, typeRampPlus2FontSize, typeRampPlus2LineHeight, typeRampPlus3FontSize, typeRampPlus3LineHeight, typeRampPlus4FontSize, typeRampPlus4LineHeight, typeRampPlus5FontSize, typeRampPlus5LineHeight, typeRampPlus6FontSize, typeRampPlus6LineHeight };
