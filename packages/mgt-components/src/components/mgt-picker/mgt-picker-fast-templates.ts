@@ -7,3 +7,9 @@ export const optionContentsTemplate: ViewTemplate = html`
       line2-property="jobTitle"
   ></mgt-person>
 `;
+
+export const itemContentsTemplate: ViewTemplate = html`
+
+    <mgt-person user-id="${x => x.value}" view="oneLine"></mgt-person>
+
+`;
