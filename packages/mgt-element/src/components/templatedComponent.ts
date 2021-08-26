@@ -7,6 +7,8 @@
 
 import { html, property, PropertyValues } from 'lit-element';
 
+import { html as fastHtml } from '@microsoft/fast-element';
+
 import { equals } from '../utils/equals';
 import { MgtBaseComponent } from './baseComponent';
 import { TemplateContext } from '../utils/TemplateContext';
@@ -138,6 +140,50 @@ export abstract class MgtTemplatedComponent extends MgtBaseComponent {
 
     return template;
   }
+  /**
+   * Render a <template> by type and return content to render
+   *
+   * @param templateType type of template (indicated by the data-type attribute)
+   * @param context the data context that should be expanded in template
+   * @param slotName the slot name that will be used to host the new rendered template. set to a unique value if multiple templates of this type will be rendered. default is templateType
+   */
+  public renderTemplateFast(templateType: string, context: object, slotName?: string) {
+    if (!this.hasTemplate(templateType)) {
+      return null;
+    }
+
+    slotName = slotName || templateType;
+    this._slotNamesAddedDuringRender.push(slotName);
+    this._renderedSlots = true;
+
+    const template = fastHtml`
+      <slot name=${slotName}></slot>
+    `;
+
+    const dataContext = { ...context, ...this.templateContext };
+
+    if (this._renderedTemplates.hasOwnProperty(slotName)) {
+      const { context: existingContext, slot } = this._renderedTemplates[slotName];
+      if (equals(existingContext, dataContext)) {
+        return template;
+      }
+      this.removeChild(slot);
+    }
+
+    const div = document.createElement('div');
+    div.slot = slotName;
+    div.dataset.generated = 'template';
+
+    TemplateHelper.renderTemplate(div, this.templates[templateType], dataContext);
+
+    this.appendChild(div);
+
+    this._renderedTemplates[slotName] = { context: dataContext, slot: div };
+
+    this.fireCustomEvent('templateRendered', { templateType, context: dataContext, element: div });
+
+    return template;
+  }
 
   /**
    * Check if a specific template has been provided.
@@ -147,7 +193,7 @@ export abstract class MgtTemplatedComponent extends MgtBaseComponent {
    * @returns {boolean}
    * @memberof MgtTemplatedComponent
    */
-  protected hasTemplate(templateName: string): boolean {
+  public hasTemplate(templateName: string): boolean {
     return this.templates && this.templates[templateName];
   }
 
