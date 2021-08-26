@@ -24,22 +24,11 @@ export const getOptionContentsTemplate = (picker: MgtPicker) => {
 };
 
 export const optionContentsTemplate: ViewTemplate = html`
-  ${when(
-    x => x.parentElement.parentElement.hasTemplate('person'),
-    html`
-    ${x => x.parentElement.parentElement.renderTemplateFast('person')}
-  `
-  )}
-  ${when(
-    x => !x.parentElement.parentElement.hasTemplate('person'),
-    html`
     <mgt-person
         :userId="${x => x.value}"
         view="twoLines"
         line2-property="jobTitle"
     ></mgt-person>
-  `
-  )}
 `;
 
 export const itemContentsTemplate: ViewTemplate = html`
