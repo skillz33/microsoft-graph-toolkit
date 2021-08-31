@@ -79,6 +79,12 @@ export class MgtMsal2Provider extends MgtBaseProvider {
   })
   public prompt: string;
 
+  @property({
+    attribute: 'incremental-consent-disabled',
+    type: Boolean
+  })
+  public isIncrementalConsentDisabled: boolean;
+
   /**
    * Disables multiple account capability
    *
@@ -142,6 +148,10 @@ export class MgtMsal2Provider extends MgtBaseProvider {
 
       if (this.isMultiAccountDisabled) {
         config.isMultiAccountDisabled = true;
+      }
+
+      if (this.isIncrementalConsentDisabled) {
+        config.isIncrementalConsentDisabled = true;
       }
 
       this.provider = new Msal2Provider(config);
