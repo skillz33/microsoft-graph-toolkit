@@ -1,8 +1,10 @@
-import { MgtTemplatedComponent, Providers, ProviderState } from '@microsoft/mgt-element';
+import { IGraph, MgtTemplatedComponent, Providers, ProviderState } from '@microsoft/mgt-element';
 import { customElement, html, property, query, state, TemplateResult } from 'lit-element';
 import { findPeople, getPeople } from '../../graph/graph.people';
 import { IDynamicPerson } from '../../graph/types';
 import { getOptionContentsTemplate, itemContentsTemplate, optionContentsTemplate } from './mgt-picker-fast-templates';
+import { Channel, Team } from '@microsoft/microsoft-graph-types';
+import { findChannels } from './mgt-picker.graph';
 
 @customElement('mgt-picker')
 export class MgtPicker extends MgtTemplatedComponent {
@@ -27,9 +29,21 @@ export class MgtPicker extends MgtTemplatedComponent {
   })
   public people: IDynamicPerson[] = [];
 
+  /**
+   * containing object of Channels.
+   * @type {Channel[]}
+   */
+  @property({
+    attribute: 'channels',
+    type: Object
+  })
+  public channels: Channel[] = [];
+
   @query('fast-picker') private picker;
 
   @state() private defaultPeople: IDynamicPerson[];
+
+  @state() private defaultChannels: Channel[];
 
   @state() private isLoading: boolean = true;
 
@@ -41,8 +55,6 @@ export class MgtPicker extends MgtTemplatedComponent {
 
   //"2804bc07-1e1f-4938-9085-ce6d756a32d2,e8a02cc7-df4d-4778-956d-784cc9506e5a,c8913c86-ceea-4d39-b1ea-f63a5b675166"
   public render() {
-    console.log(this.people.map(p => p.id).join(','));
-
     return html`
       <fast-picker
         .options=${this.people.map(p => p.id).join(',')}
@@ -77,21 +89,24 @@ export class MgtPicker extends MgtTemplatedComponent {
       const input = this.picker.query;
       const graph = provider.graph.forComponent(this);
 
-      if (!this.defaultPeople) {
+      if (!this.defaultPeople && !this.defaultChannels) {
         this.isLoading = true;
 
         this.defaultPeople = await getPeople(graph);
+        this.defaultChannels = await findChannels(graph);
       }
 
       if (input) {
         // TODO: report bug - workaround for picker not updating when input changes
         this.people = [];
         this.people = await findPeople(graph, input);
+
+        this.channels = await findChannels(graph, input);
       } else {
         this.people = this.defaultPeople;
+        this.channels = this.defaultChannels;
       }
-
-      console.log(this.people);
+      console.log(this.channels);
     }
 
     this.isLoading = false;
