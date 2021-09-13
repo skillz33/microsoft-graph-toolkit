@@ -60,20 +60,36 @@ const fastHTMLPolicy = $global.trustedTypes.createPolicy("fast-html", {
 });
 /* eslint-enable */
 
-let htmlPolicy = fastHTMLPolicy;
+let htmlPolicy = fastHTMLPolicy; // We use a queue so we can ensure errors are thrown in order.
+
+const pendingErrors = [];
+
+function throwFirstError() {
+  if (pendingErrors.length) {
+    throw pendingErrors.shift();
+  }
+}
+
+function tryRunTask(task) {
+  try {
+    task.call();
+  } catch (error) {
+    pendingErrors.push(error);
+    setTimeout(throwFirstError, 0);
+  }
+}
 
 function processQueue() {
   const capacity = 1024;
   let index = 0;
 
   while (index < updateQueue.length) {
-    const task = updateQueue[index];
-    task.call();
-    index++; // Prevent leaking memory for long chains of recursive calls to `queueMicroTask`.
-    // If we call `queueMicroTask` within a MicroTask scheduled by `queueMicroTask`, the queue will
-    // grow, but to avoid an O(n) walk for every MicroTask we execute, we don't
-    // shift MicroTasks off the queue after they have been executed.
-    // Instead, we periodically shift 1024 MicroTasks off the queue.
+    tryRunTask(updateQueue[index]);
+    index++; // Prevent leaking memory for long chains of recursive calls to `DOM.queueUpdate`.
+    // If we call `DOM.queueUpdate` within a task scheduled by `DOM.queueUpdate`, the queue will
+    // grow, but to avoid an O(n) walk for every task we execute, we don't
+    // shift tasks off the queue after they have been executed.
+    // Instead, we periodically shift 1024 tasks off the queue.
 
     if (index > capacity) {
       // Manually shift all values starting at the index back to the
@@ -395,6 +411,7 @@ class PropertyChangeNotifier {
    */
   constructor(source) {
     this.subscribers = {};
+    this.sourceSubscribers = null;
     this.source = source;
   }
   /**
@@ -404,11 +421,15 @@ class PropertyChangeNotifier {
 
 
   notify(propertyName) {
+    var _a;
+
     const subscribers = this.subscribers[propertyName];
 
     if (subscribers !== void 0) {
       subscribers.notify(propertyName);
     }
+
+    (_a = this.sourceSubscribers) === null || _a === void 0 ? void 0 : _a.notify(propertyName);
   }
   /**
    * Subscribes to notification of changes in an object's state.
@@ -418,13 +439,20 @@ class PropertyChangeNotifier {
 
 
   subscribe(subscriber, propertyToWatch) {
-    let subscribers = this.subscribers[propertyToWatch];
+    var _a;
 
-    if (subscribers === void 0) {
-      this.subscribers[propertyToWatch] = subscribers = new SubscriberSet(this.source);
+    if (propertyToWatch) {
+      let subscribers = this.subscribers[propertyToWatch];
+
+      if (subscribers === void 0) {
+        this.subscribers[propertyToWatch] = subscribers = new SubscriberSet(this.source);
+      }
+
+      subscribers.subscribe(subscriber);
+    } else {
+      this.sourceSubscribers = (_a = this.sourceSubscribers) !== null && _a !== void 0 ? _a : new SubscriberSet(this.source);
+      this.sourceSubscribers.subscribe(subscriber);
     }
-
-    subscribers.subscribe(subscriber);
   }
   /**
    * Unsubscribes from notification of changes in an object's state.
@@ -434,13 +462,17 @@ class PropertyChangeNotifier {
 
 
   unsubscribe(subscriber, propertyToUnwatch) {
-    const subscribers = this.subscribers[propertyToUnwatch];
+    var _a;
 
-    if (subscribers === void 0) {
-      return;
+    if (propertyToUnwatch) {
+      const subscribers = this.subscribers[propertyToUnwatch];
+
+      if (subscribers !== void 0) {
+        subscribers.unsubscribe(subscriber);
+      }
+    } else {
+      (_a = this.sourceSubscribers) === null || _a === void 0 ? void 0 : _a.unsubscribe(subscriber);
     }
-
-    subscribers.unsubscribe(subscriber);
   }
 
 }
@@ -1960,11 +1992,11 @@ class StyleElementStyles extends ElementStyles {
     const styleClass = this.styleClass;
     target = this.normalizeTarget(target);
 
-    for (let i = styleSheets.length - 1; i > -1; --i) {
+    for (let i = 0; i < styleSheets.length; i++) {
       const element = document.createElement("style");
       element.innerHTML = styleSheets[i];
       element.className = styleClass;
-      target.prepend(element);
+      target.append(element);
     }
 
     super.addStylesTo(target);
@@ -2447,7 +2479,7 @@ class Controller extends PropertyChangeNotifier {
     const target = getShadowRoot(this.element) || this.element.getRootNode();
 
     if (styles instanceof HTMLStyleElement) {
-      target.prepend(styles);
+      target.append(styles);
     } else if (!styles.isAttachedTo(target)) {
       const sourceBehaviors = styles.behaviors;
       styles.addStylesTo(target);
@@ -12545,6 +12577,10 @@ class DesignTokenImpl extends CSSDirective {
       this.cssCustomProperty = `--${configuration.cssCustomPropertyName}`;
       this.cssVar = `var(${this.cssCustomProperty})`;
     }
+
+    this.id = DesignTokenImpl.uniqueId();
+    DesignTokenImpl.tokensById.set(this.id, this);
+    this.subscribe(this);
   }
 
   get appliedTo() {
@@ -12562,6 +12598,20 @@ class DesignTokenImpl extends CSSDirective {
     return typeof token.cssCustomProperty === "string";
   }
 
+  static isDerivedDesignTokenValue(value) {
+    return typeof value === "function";
+  }
+  /**
+   * Gets a token by ID. Returns undefined if the token was not found.
+   * @param id - The ID of the token
+   * @returns
+   */
+
+
+  static getTokenById(id) {
+    return DesignTokenImpl.tokensById.get(id);
+  }
+
   getOrCreateSubscriberSet(target = this) {
     return this.subscribers.get(target) || this.subscribers.set(target, new Set()) && this.subscribers.get(target);
   }
@@ -12571,37 +12621,38 @@ class DesignTokenImpl extends CSSDirective {
   }
 
   getValueFor(element) {
-    const node = DesignTokenNode.for(this, element);
-    Observable.track(node, "value");
-    return DesignTokenNode.for(this, element).value;
+    const value = DesignTokenNode.getOrCreate(element).get(this);
+
+    if (value !== undefined) {
+      return value;
+    }
+
+    throw new Error(`Value could not be retrieved for token named "${this.name}". Ensure the value is set for ${element} or an ancestor of ${element}.`);
   }
 
   setValueFor(element, value) {
     this._appliedTo.add(element);
 
     if (value instanceof DesignTokenImpl) {
-      const tokenValue = value;
-
-      value = target => tokenValue.getValueFor(target);
+      value = this.alias(value);
     }
 
-    DesignTokenNode.for(this, element).set(value);
-    [...this.getOrCreateSubscriberSet(this), ...this.getOrCreateSubscriberSet(element)].forEach(x => x.handleChange({
-      token: this,
-      target: element
-    }));
+    DesignTokenNode.getOrCreate(element).set(this, value);
     return this;
   }
 
   deleteValueFor(element) {
     this._appliedTo.delete(element);
 
-    DesignTokenNode.for(this, element).delete();
+    if (DesignTokenNode.existsFor(element)) {
+      DesignTokenNode.getOrCreate(element).delete(this);
+    }
+
     return this;
   }
 
   withDefault(value) {
-    DesignTokenNode.for(this, defaultElement).set(value);
+    this.setValueFor(defaultElement, value);
     return this;
   }
 
@@ -12614,15 +12665,176 @@ class DesignTokenImpl extends CSSDirective {
   }
 
   unsubscribe(subscriber, target) {
-    this.getOrCreateSubscriberSet(target).delete(subscriber);
+    const list = this.subscribers.get(target || this);
+
+    if (list && list.has(subscriber)) {
+      list.delete(subscriber);
+    }
+  }
+  /**
+   * Notifies subscribers that the value for an element has changed.
+   * @param element - The element to emit a notification for
+   */
+
+
+  notify(element) {
+    const record = Object.freeze({
+      token: this,
+      target: element
+    });
+
+    if (this.subscribers.has(this)) {
+      this.subscribers.get(this).forEach(sub => sub.handleChange(record));
+    }
+
+    if (this.subscribers.has(element)) {
+      this.subscribers.get(element).forEach(sub => sub.handleChange(record));
+    }
+  }
+  /**
+   * Proxy changes to Observable
+   * @param record - The change record
+   */
+
+
+  handleChange(record) {
+    const node = DesignTokenNode.getOrCreate(record.target);
+    Observable.getNotifier(node).notify(record.token.id);
+  }
+  /**
+   * Alias the token to the provided token.
+   * @param token - the token to alias to
+   */
+
+
+  alias(token) {
+    return target => token.getValueFor(target);
   }
 
 }
 
+DesignTokenImpl.uniqueId = (() => {
+  let id = 0;
+  return () => {
+    id++;
+    return id.toString(16);
+  };
+})();
+/**
+ * Token storage by token ID
+ */
+
+
+DesignTokenImpl.tokensById = new Map();
+
+class CustomPropertyReflector {
+  startReflection(token, target) {
+    token.subscribe(this, target);
+    this.handleChange({
+      token,
+      target
+    });
+  }
+
+  stopReflection(token, target) {
+    token.unsubscribe(this, target);
+    this.remove(token, target);
+  }
+
+  handleChange(record) {
+    const {
+      token,
+      target
+    } = record;
+    this.remove(token, target);
+    this.add(token, target);
+  }
+
+  add(token, target) {
+    CustomPropertyManager.addTo(target, token, this.resolveCSSValue(DesignTokenNode.getOrCreate(target).get(token)));
+  }
+
+  remove(token, target) {
+    CustomPropertyManager.removeFrom(target, token);
+  }
+
+  resolveCSSValue(value) {
+    return value && typeof value.createCSS === "function" ? value.createCSS() : value;
+  }
+
+}
+/**
+ * A light wrapper around BindingObserver to handle value caching and
+ * token notification
+ */
+
+
+class DesignTokenBindingObserver {
+  constructor(source, token, node) {
+    this.source = source;
+    this.token = token;
+    this.node = node;
+    this.dependencies = new Set();
+    this.observer = Observable.binding(source, this); // This is a little bit hacky because it's using internal APIs of BindingObserverImpl.
+    // BindingObserverImpl queues updates to batch it's notifications which doesn't work for this
+    // scenario because the DesignToken.getValueFor API is not async. Without this, using DesignToken.getValueFor()
+    // after DesignToken.setValueFor() when setting a dependency of the value being retrieved can return a stale
+    // value. Assigning .handleChange to .call forces immediate invocation of this classes handleChange() method,
+    // allowing resolution of values synchronously.
+    // TODO: https://github.com/microsoft/fast/issues/5110
+
+    this.observer.handleChange = this.observer.call;
+    this.handleChange();
+
+    for (const record of this.observer.records()) {
+      const {
+        propertySource
+      } = record;
+
+      if (propertySource instanceof DesignTokenNode) {
+        const token = DesignTokenImpl.getTokenById(record.propertyName); // Tokens should not enumerate themselves as a dependency because
+        // any setting of the token will override the value for that scope.
+
+        if (token !== undefined && token !== this.token) {
+          this.dependencies.add(token);
+        }
+      }
+    }
+  }
+
+  disconnect() {
+    this.observer.disconnect();
+  }
+
+  _valueChanged(prev, next) {
+    // Only notify on changes, not initialization
+    if (prev !== undefined) {
+      this.token.notify(this.node.target);
+    }
+  }
+  /**
+   * The value of the binding
+   */
+
+
+  get value() {
+    return this._value;
+  }
+  /**
+   * @internal
+   */
+
+
+  handleChange() {
+    this._value = this.observer.observe(this.node.target, defaultExecutionContext);
+  }
+
+}
+
+__decorate([observable], DesignTokenBindingObserver.prototype, "_value", void 0);
+
 const nodeCache = new WeakMap();
-const channelCache = new Map();
 const childToParent = new WeakMap();
-const noop = Function.prototype;
 /**
  * A node responsible for setting and getting token values,
  * emitting values to CSS custom properties, and maintaining
@@ -12630,289 +12842,387 @@ const noop = Function.prototype;
  */
 
 class DesignTokenNode {
-  constructor(token, target) {
-    var _a;
-
-    this.token = token;
+  constructor(target) {
     this.target = target;
-    /** Track downstream nodes */
-
-    this.children = new Set();
-    this.useCSSCustomProperty = false;
     /**
-     * Invoked when parent node's value changes
+     * All children assigned to the node
      */
 
-    this.handleChange = this.unsetValueChangeHandler;
-    this.bindingChangeHandler = {
-      handleChange: () => {
-        Observable.getNotifier(this).notify("value");
-      }
-    };
-    this.cssCustomPropertySubscriber = {
-      handleChange: () => {
-        CustomPropertyManager.removeFrom(this.target, this.token);
-        CustomPropertyManager.addTo(this.target, this.token, this.resolveCSSValue(this.value));
-      },
-      dispose: () => {
-        CustomPropertyManager.removeFrom(this.target, this.token);
-      }
-    };
-    this.tokenDependencySubscriber = {
-      handleChange: record => {
-        const rawValue = this.resolveRawValue();
-        const target = DesignTokenNode.for(this.token, record.target); // Only act on downstream nodes
+    this.children = [];
+    /**
+     * All values explicitly assigned to the node in their raw form
+     */
 
-        if (this.contains(target) && !target.useCSSCustomProperty && target.resolveRawValue() === rawValue) {
-          target.useCSSCustomProperty = true;
-        }
-      }
-    };
+    this.rawValues = new Map();
+    /**
+     * Tokens currently being reflected to CSS custom properties
+     */
 
-    if (nodeCache.has(target) && nodeCache.get(target).has(token)) {
-      throw new Error(`DesignTokenNode already created for ${token.name} and ${target}. Use DesignTokenNode.for() to ensure proper reuse`);
-    }
+    this.reflecting = new Set();
+    /**
+     * Binding observers for assigned and inherited derived values.
+     */
 
-    const container = DI.getOrCreateDOMContainer(this.target);
-    const channel = DesignTokenNode.channel(token);
-    container.register(Registration.instance(channel, this));
+    this.bindingObservers = new Map();
+    /**
+     * Tracks subscribers for tokens assigned a derived value for the node.
+     */
 
-    if (!DesignTokenImpl.isCSSDesignToken(token)) {
-      delete this.useCSSCustomPropertyChanged;
-    }
+    this.tokenSubscribers = new Map();
+    nodeCache.set(target, this);
 
     if (target instanceof FASTElement) {
       target.$fastController.addBehaviors([this]);
-    } else {
-      (_a = this.findParentNode()) === null || _a === void 0 ? void 0 : _a.appendChild(this);
+    } else if (target.isConnected) {
+      this.bind();
     }
   }
-
-  _rawValueChanged() {
-    Observable.getNotifier(this).notify("value");
-  }
   /**
-   * The actual value set for the node, or undefined.
-   * This will be a reference to the original object for all data types
-   * passed by reference.
+   * Returns a DesignTokenNode for an element.
+   * Creates a new instance if one does not already exist for a node,
+   * otherwise returns the cached instance
+   *
+   * @param target - The HTML element to retrieve a DesignTokenNode for
    */
 
 
-  get rawValue() {
-    return this._rawValue;
+  static getOrCreate(target) {
+    return nodeCache.get(target) || new DesignTokenNode(target);
   }
+  /**
+   * Determines if a DesignTokenNode has been created for a target
+   * @param target - The element to test
+   */
 
-  useCSSCustomPropertyChanged(prev, next) {
-    if (next) {
-      Observable.getNotifier(this).subscribe(this.cssCustomPropertySubscriber, "value");
-      this.cssCustomPropertySubscriber.handleChange();
-    } else if (prev) {
-      Observable.getNotifier(this).unsubscribe(this.cssCustomPropertySubscriber, "value");
-      this.cssCustomPropertySubscriber.dispose();
-    }
+
+  static existsFor(target) {
+    return nodeCache.has(target);
   }
+  /**
+   * Searches for and return the nearest parent DesignTokenNode.
+   * Null is returned if no node is found or the node provided is for a default element.
+   */
 
-  bind() {
-    var _a;
 
-    (_a = this.findParentNode()) === null || _a === void 0 ? void 0 : _a.appendChild(this);
-  }
+  static findParent(node) {
+    if (!(defaultElement === node.target)) {
+      let parent = composedParent(node.target);
 
-  unbind() {
-    var _a;
+      while (parent !== null) {
+        if (nodeCache.has(parent)) {
+          return nodeCache.get(parent);
+        }
 
-    (_a = childToParent.get(this)) === null || _a === void 0 ? void 0 : _a.removeChild(this);
-    this.tearDownBindingObserver();
-  }
-
-  resolveRealValue() {
-    const rawValue = this.resolveRawValue();
-
-    if (DesignTokenNode.isDerivedTokenValue(rawValue)) {
-      if (!this.bindingObserver || this.bindingObserver.source !== rawValue) {
-        this.setupBindingObserver(rawValue);
+        parent = composedParent(parent);
       }
 
-      return this.bindingObserver.observe(this.target, defaultExecutionContext);
-    } else {
-      if (this.bindingObserver) {
-        this.tearDownBindingObserver();
-      }
-
-      return rawValue;
+      return DesignTokenNode.getOrCreate(defaultElement);
     }
-  }
 
-  resolveRawValue() {
-    /* eslint-disable-next-line */
-    let current = this;
+    return null;
+  }
+  /**
+   * Finds the closest node with a value explicitly assigned for a token, otherwise null.
+   * @param token - The token to look for
+   * @param start - The node to start looking for value assignment
+   * @returns
+   */
+
+
+  static findClosestAssignedNode(token, start) {
+    let current = start;
 
     do {
+      if (current.has(token)) {
+        return current;
+      }
+
+      current = current.parent ? current.parent : current.target !== defaultElement ? DesignTokenNode.getOrCreate(defaultElement) : null;
+    } while (current !== null);
+
+    return null;
+  }
+
+  get parent() {
+    return childToParent.get(this) || null;
+  }
+  /**
+   * Checks if a token has been assigned an explicit value the node.
+   * @param token - the token to check.
+   */
+
+
+  has(token) {
+    return this.rawValues.has(token);
+  }
+  /**
+   * Gets the value of a token for a node
+   * @param token - The token to retrieve the value for
+   * @returns
+   */
+
+
+  get(token) {
+    const raw = this.getRaw(token);
+    Observable.track(this, token.id);
+
+    if (raw !== undefined) {
+      if (DesignTokenImpl.isDerivedDesignTokenValue(raw)) {
+        return (this.bindingObservers.get(token) || this.setupBindingObserver(token, raw)).value;
+      } else {
+        return raw;
+      }
+    }
+
+    return undefined;
+  }
+  /**
+   * Retrieves the raw assigned value of a token from the nearest assigned node.
+   * @param token - The token to retrieve a raw value for
+   * @returns
+   */
+
+
+  getRaw(token) {
+    var _a;
+
+    if (this.rawValues.has(token)) {
+      return this.rawValues.get(token);
+    }
+
+    return (_a = DesignTokenNode.findClosestAssignedNode(token, this)) === null || _a === void 0 ? void 0 : _a.getRaw(token);
+  }
+  /**
+   * Sets a token to a value for a node
+   * @param token - The token to set
+   * @param value - The value to set the token to
+   */
+
+
+  set(token, value) {
+    // Disconnect any existing binding observer
+    // And delete it
+    if (DesignTokenImpl.isDerivedDesignTokenValue(this.rawValues.get(token))) {
+      this.tearDownBindingObserver(token);
+      this.children.forEach(x => x.purgeInheritedBindings(token));
+    }
+
+    this.rawValues.set(token, value);
+
+    if (this.tokenSubscribers.has(token)) {
+      token.unsubscribe(this.tokenSubscribers.get(token));
+      this.tokenSubscribers.delete(token);
+    }
+
+    if (DesignTokenImpl.isDerivedDesignTokenValue(value)) {
+      const binding = this.setupBindingObserver(token, value);
       const {
-        rawValue
-      } = current;
+        dependencies
+      } = binding;
+      const reflect = DesignTokenImpl.isCSSDesignToken(token);
 
-      if (rawValue !== void 0) {
-        return rawValue;
+      if (dependencies.size > 0) {
+        const subscriber = {
+          handleChange: record => {
+            const node = DesignTokenNode.getOrCreate(record.target);
+
+            if (this !== node && this.contains(node)) {
+              token.notify(record.target);
+              DesignTokenNode.getOrCreate(record.target).reflectToCSS(token);
+            }
+          }
+        };
+        this.tokenSubscribers.set(token, subscriber);
+        dependencies.forEach(x => {
+          // Check all existing nodes for which a dependency has been applied
+          // and determine if we need to update the token being set for that node
+          if (reflect) {
+            x.appliedTo.forEach(y => {
+              const node = DesignTokenNode.getOrCreate(y);
+
+              if (this.contains(node) && node.getRaw(token) === value) {
+                token.notify(node.target);
+                node.reflectToCSS(token);
+              }
+            });
+          }
+
+          x.subscribe(subscriber);
+        });
       }
-
-      current = childToParent.get(current);
-    } while (current !== undefined); // If there is no parent, try to resolve parent and try again.
-
-
-    if (!childToParent.has(this)) {
-      const parent = this.findParentNode();
-
-      if (parent) {
-        parent.appendChild(this);
-        return this.resolveRawValue();
-      }
     }
 
-    throw new Error(`Value could not be retrieved for token named "${this.token.name}". Ensure the value is set for ${this.target} or an ancestor of ${this.target}. `);
-  }
+    if (DesignTokenImpl.isCSSDesignToken(token)) {
+      this.reflectToCSS(token);
+    }
 
-  resolveCSSValue(value) {
-    return value && typeof value.createCSS === "function" ? value.createCSS() : value;
+    token.notify(this.target);
   }
+  /**
+   * Deletes a token value for the node.
+   * @param token - The token to delete the value for
+   */
 
-  static channel(token) {
-    return channelCache.has(token) ? channelCache.get(token) : channelCache.set(token, DI.createInterface()) && channelCache.get(token);
+
+  delete(token) {
+    this.rawValues.delete(token);
+    this.tearDownBindingObserver(token);
+    this.children.forEach(x => x.purgeInheritedBindings(token));
+    token.notify(this.target);
   }
+  /**
+   * Invoked when the DesignTokenNode.target is attached to the document
+   */
 
-  static isDerivedTokenValue(value) {
-    return typeof value === "function";
-  }
 
-  unsetValueChangeHandler(source, key) {
-    if (this._rawValue === void 0) {
-      Observable.getNotifier(this).notify("value");
+  bind() {
+    const parent = DesignTokenNode.findParent(this);
+
+    if (parent) {
+      parent.appendChild(this);
+    }
+
+    for (const key of this.rawValues.keys()) {
+      key.notify(this.target);
     }
   }
+  /**
+   * Invoked when the DesignTokenNode.target is detached from the document
+   */
 
-  setupBindingObserver(value) {
-    this.tearDownBindingObserver();
-    this.bindingObserver = Observable.binding(value, this.bindingChangeHandler);
-  }
 
-  tearDownBindingObserver() {
-    if (this.bindingObserver) {
-      this.bindingObserver.disconnect();
-      this.bindingObserver = undefined;
+  unbind() {
+    if (this.parent) {
+      const parent = childToParent.get(this);
+      parent.removeChild(this);
     }
   }
+  /**
+   * Appends a child to a parent DesignTokenNode.
+   * @param child - The child to append to the node
+   */
 
-  static for(token, target) {
-    const targetCache = nodeCache.has(target) ? nodeCache.get(target) : nodeCache.set(target, new Map()) && nodeCache.get(target);
-    return targetCache.has(token) ? targetCache.get(token) : targetCache.set(token, new DesignTokenNode(token, target)) && targetCache.get(token);
-  }
 
   appendChild(child) {
-    if (this.children.has(child)) {
-      return;
+    if (child.parent) {
+      childToParent.get(child).removeChild(child);
     }
 
-    this.children.forEach(c => {
-      if (child.contains(c)) {
-        this.removeChild(c);
-        child.appendChild(c);
-      }
-    });
-    this.children.add(child);
-    Observable.getNotifier(this).subscribe(child, "value");
+    const reParent = this.children.filter(x => child.contains(x));
     childToParent.set(child, this);
+    this.children.push(child);
+    reParent.forEach(x => child.appendChild(x));
+    Observable.getNotifier(this).subscribe(child);
   }
+  /**
+   * Removes a child from a node.
+   * @param child - The child to remove.
+   */
+
 
   removeChild(child) {
-    this.children.delete(child);
-    childToParent.delete(child);
-    Observable.getNotifier(this).unsubscribe(child, "value");
-  }
+    const childIndex = this.children.indexOf(child);
 
-  contains(node) {
-    return composedContains(this.target, node.target);
-  }
-
-  findParentNode() {
-    if (this.target === defaultElement) {
-      return null;
+    if (childIndex !== -1) {
+      this.children.splice(childIndex, 1);
     }
 
-    const parent = composedParent(this.target);
-
-    if (this.target !== document.body && parent) {
-      const container = DI.getOrCreateDOMContainer(parent); // TODO: use Container.tryGet() when added by https://github.com/microsoft/fast/issues/4582
-
-      if (container.has(DesignTokenNode.channel(this.token), true)) {
-        return container.get(DesignTokenNode.channel(this.token));
-      }
-    }
-
-    return DesignTokenNode.for(this.token, defaultElement);
+    Observable.getNotifier(this).unsubscribe(child);
+    return child.parent === this ? childToParent.delete(child) : false;
   }
   /**
-   * The resolved value for a node.
+   * Tests whether a provided node is contained by
+   * the calling node.
+   * @param test - The node to test
    */
 
 
-  get value() {
-    return this.resolveRealValue();
+  contains(test) {
+    return composedContains(this.target, test.target);
   }
   /**
-   * Sets a value for the node
-   * @param value The value to set
+   * Instructs the node to reflect a design token for the provided token.
+   * @param token - The design token to reflect
    */
 
 
-  set(value) {
-    if (value === this._rawValue) {
-      return;
+  reflectToCSS(token) {
+    if (!this.reflecting.has(token)) {
+      this.reflecting.add(token);
+      DesignTokenNode.cssCustomPropertyReflector.startReflection(token, this.target);
     }
+  }
+  /**
+   * Handle changes to upstream tokens
+   * @param source - The parent DesignTokenNode
+   * @param property - The token ID that changed
+   */
 
-    this.handleChange = noop;
-    this._rawValue = value;
 
-    if (!this.useCSSCustomProperty) {
-      this.useCSSCustomProperty = true;
+  handleChange(source, property) {
+    const token = DesignTokenImpl.getTokenById(property); // Propagate change notifications down to children
+    // Don't propagate changes for tokens with bindingObservers
+    // because the bindings are responsible for notifying themselves
+
+    if (token && !this.has(token) && !this.bindingObservers.has(token)) {
+      token.notify(this.target);
     }
+  }
+  /**
+   * Recursively purge binding observers for a token for descendent of the node.
+   * Bindings will only be purged for trees of nodes where no explicit value for the node
+   * is assigned.
+   * @param token - the token to purge bindings on
+   */
 
-    if (this.bindingObserver) {
-      const records = this.bindingObserver.records();
 
-      for (const record of records) {
-        if (record.propertySource instanceof DesignTokenNode && record.propertySource.token instanceof DesignTokenImpl) {
-          const {
-            token
-          } = record.propertySource;
-          token.subscribe(this.tokenDependencySubscriber);
-          token.appliedTo.forEach(target => this.tokenDependencySubscriber.handleChange({
-            token,
-            target
-          }));
-        }
+  purgeInheritedBindings(token) {
+    if (!this.has(token)) {
+      this.tearDownBindingObserver(token);
+
+      if (this.children.length) {
+        this.children.forEach(child => child.purgeInheritedBindings(token));
       }
     }
   }
   /**
-   * Deletes any value set for the node.
+   * Sets up a binding observer for a derived token value that notifies token
+   * subscribers on change.
+   *
+   * @param token - The token to notify when the binding updates
+   * @param source - The binding source
    */
 
 
-  delete() {
-    if (this.useCSSCustomProperty) {
-      this.useCSSCustomProperty = false;
+  setupBindingObserver(token, source) {
+    const binding = new DesignTokenBindingObserver(source, token, this);
+    this.bindingObservers.set(token, binding);
+    return binding;
+  }
+  /**
+   * Tear down a binding observer for a token.
+   */
+
+
+  tearDownBindingObserver(token) {
+    if (this.bindingObservers.has(token)) {
+      this.bindingObservers.get(token).disconnect();
+      this.bindingObservers.delete(token);
+      return true;
     }
 
-    this._rawValue = void 0;
-    this.handleChange = this.unsetValueChangeHandler;
-    this.tearDownBindingObserver();
+    return false;
   }
 
 }
+/**
+ * Responsible for reflecting tokens to CSS custom properties
+ */
 
-__decorate([observable], DesignTokenNode.prototype, "_rawValue", void 0);
 
-__decorate([observable], DesignTokenNode.prototype, "useCSSCustomProperty", void 0);
+DesignTokenNode.cssCustomPropertyReflector = new CustomPropertyReflector();
+
+__decorate([observable], DesignTokenNode.prototype, "children", void 0);
 
 function create(nameOrConfig) {
   return DesignTokenImpl.from(nameOrConfig);
@@ -12924,7 +13234,53 @@ function create(nameOrConfig) {
 
 
 const DesignToken = Object.freeze({
-  create
+  create,
+
+  /**
+   * Informs DesignToken that an HTMLElement for which tokens have
+   * been set has been connected to the document.
+   *
+   * The browser does not provide a reliable mechanism to observe an HTMLElement's connectedness
+   * in all scenarios, so invoking this method manually is necessary when:
+   *
+   * 1. Token values are set for an HTMLElement.
+   * 2. The HTMLElement does not inherit from FASTElement.
+   * 3. The HTMLElement is not connected to the document when token values are set.
+   *
+   * @param element - The element to notify
+   * @returns - true if notification was successful, otherwise false.
+   */
+  notifyConnection(element) {
+    if (!element.isConnected || !DesignTokenNode.existsFor(element)) {
+      return false;
+    }
+
+    DesignTokenNode.getOrCreate(element).bind();
+    return true;
+  },
+
+  /**
+   * Informs DesignToken that an HTMLElement for which tokens have
+   * been set has been disconnected to the document.
+   *
+   * The browser does not provide a reliable mechanism to observe an HTMLElement's connectedness
+   * in all scenarios, so invoking this method manually is necessary when:
+   *
+   * 1. Token values are set for an HTMLElement.
+   * 2. The HTMLElement does not inherit from FASTElement.
+   *
+   * @param element - The element to notify
+   * @returns - true if notification was successful, otherwise false.
+   */
+  notifyDisconnection(element) {
+    if (element.isConnected || !DesignTokenNode.existsFor(element)) {
+      return false;
+    }
+
+    DesignTokenNode.getOrCreate(element).unbind();
+    return true;
+  }
+
 });
 
 /**
@@ -12932,7 +13288,7 @@ const DesignToken = Object.freeze({
  * @public
  */
 
-const dialogTemplate = (context, definition) => html`<div class="positioning-region" part="positioning-region">${when(x => x.modal, html`<div class="overlay" part="overlay" role="presentation" tabindex="-1" @click="${x => x.dismiss()}"></div>`)}<div role="dialog" class="control" part="control" aria-modal="${x => x.modal}" aria-describedby="${x => x.ariaDescribedby}" aria-labelledby="${x => x.ariaLabelledby}" aria-label="${x => x.ariaLabel}" ${ref("dialog")}><slot></slot></div></div>`;
+const dialogTemplate = (context, definition) => html`<div class="positioning-region" part="positioning-region">${when(x => x.modal, html`<div class="overlay" part="overlay" role="presentation" @click="${x => x.dismiss()}"></div>`)}<div role="dialog" tabindex="-1" class="control" part="control" aria-modal="${x => x.modal}" aria-describedby="${x => x.ariaDescribedby}" aria-labelledby="${x => x.ariaLabelledby}" aria-label="${x => x.ariaLabel}" ${ref("dialog")}><slot></slot></div></div>`;
 
 /*!
 * tabbable 5.2.0
@@ -13121,7 +13477,8 @@ class Dialog extends FoundationElement {
   constructor() {
     super(...arguments);
     /**
-     * Indicates the element is modal. When modal, user interaction will be limited to the contents of the element.
+     * Indicates the element is modal. When modal, user mouse interaction will be limited to the contents of the element by a modal
+     * overlay.  Clicks on the overlay will cause the dialog to emit a "dismiss" event.
      * @public
      * @defaultValue - true
      * @remarks
@@ -13151,18 +13508,16 @@ class Dialog extends FoundationElement {
     this.trapFocus = true;
 
     this.trapFocusChanged = () => {
-      if (this.trapFocus) {
-        // Add an event listener for focusin events if we should be trapping focus
-        document.addEventListener("focusin", this.handleDocumentFocus); // determine if we should move focus inside the dialog
-
-        if (this.shouldForceFocus(document.activeElement)) {
-          this.focusFirstElement();
-        }
-      } else {
-        // remove event listener if we are not trapping focus
-        document.removeEventListener("focusin", this.handleDocumentFocus);
+      if (this.$fastController.isConnected) {
+        this.updateTrapFocus();
       }
     };
+    /**
+     * @internal
+     */
+
+
+    this.isTrappingFocus = false;
 
     this.handleDocumentKeydown = e => {
       if (!e.defaultPrevented && !this.hidden) {
@@ -13229,6 +13584,10 @@ class Dialog extends FoundationElement {
 
       if (bounds.length > 0) {
         bounds[0].focus();
+      } else {
+        if (this.dialog instanceof HTMLElement) {
+          this.dialog.focus();
+        }
       }
     };
     /**
@@ -13237,7 +13596,40 @@ class Dialog extends FoundationElement {
 
 
     this.shouldForceFocus = currentFocusElement => {
-      return !this.hidden && !this.contains(currentFocusElement);
+      return this.isTrappingFocus && !this.contains(currentFocusElement);
+    };
+    /**
+     * we should we be active trapping focus
+     */
+
+
+    this.shouldTrapFocus = () => {
+      return this.trapFocus && !this.hidden;
+    };
+    /**
+     *
+     *
+     * @internal
+     */
+
+
+    this.updateTrapFocus = shouldTrapFocusOverride => {
+      const shouldTrapFocus = shouldTrapFocusOverride === undefined ? this.shouldTrapFocus() : shouldTrapFocusOverride;
+
+      if (shouldTrapFocus && !this.isTrappingFocus) {
+        this.isTrappingFocus = true; // Add an event listener for focusin events if we are trapping focus
+
+        document.addEventListener("focusin", this.handleDocumentFocus);
+        DOM.queueUpdate(() => {
+          if (this.shouldForceFocus(document.activeElement)) {
+            this.focusFirstElement();
+          }
+        });
+      } else if (!shouldTrapFocus && this.isTrappingFocus) {
+        this.isTrappingFocus = false; // remove event listener if we are not trapping focus
+
+        document.removeEventListener("focusin", this.handleDocumentFocus);
+      }
     };
   }
   /**
@@ -13275,10 +13667,10 @@ class Dialog extends FoundationElement {
 
   connectedCallback() {
     super.connectedCallback();
-    document.addEventListener("keydown", this.handleDocumentKeydown); // Ensure the DOM is updated
-    // This helps avoid a delay with `autofocus` elements receiving focus
-
-    DOM.queueUpdate(this.trapFocusChanged);
+    document.addEventListener("keydown", this.handleDocumentKeydown);
+    this.notifier = Observable.getNotifier(this);
+    this.notifier.subscribe(this, "hidden");
+    this.updateTrapFocus();
   }
   /**
    * @internal
@@ -13290,8 +13682,19 @@ class Dialog extends FoundationElement {
 
     document.removeEventListener("keydown", this.handleDocumentKeydown); // if we are trapping focus remove the focusin listener
 
-    if (this.trapFocus) {
-      document.removeEventListener("focusin", this.handleDocumentFocus);
+    this.updateTrapFocus(false);
+    this.notifier.unsubscribe(this, "hidden");
+  }
+  /**
+   * @internal
+   */
+
+
+  handleChange(source, propertyName) {
+    switch (propertyName) {
+      case "hidden":
+        this.updateTrapFocus();
+        break;
     }
   }
   /**
@@ -14285,7 +14688,10 @@ class Picker extends FormAssociatedPicker {
       }
 
       if (e.target instanceof PickerMenuOption) {
-        this.selection = `${this.selection}${this.selection === "" ? "" : ","}${e.target.value}`;
+        if (e.target.value !== undefined) {
+          this.selection = `${this.selection}${this.selection === "" ? "" : ","}${e.target.value}`;
+        }
+
         this.toggleFlyout(false);
         this.listElement.inputElement.value = "";
         return false;
@@ -15147,8 +15553,6 @@ class Menu extends FoundationElement {
         this.focusIndex = 0;
       }
 
-      let indent;
-
       function elementIndent(el) {
         if (!(el instanceof MenuItem)) {
           return 1;
@@ -15165,7 +15569,7 @@ class Menu extends FoundationElement {
         }
       }
 
-      indent = menuItems.reduce((accum, current) => {
+      const indent = menuItems.reduce((accum, current) => {
         const elementValue = elementIndent(current);
         return accum > elementValue ? accum : elementValue;
       }, 0);
@@ -15379,7 +15783,7 @@ __decorate([observable], Menu.prototype, "items", void 0);
  * @public
  */
 
-const numberFieldTemplate = (context, definition) => html`<template class="${x => x.readOnly ? "readonly" : ""}"><label part="label" for="control" class="${x => x.defaultSlottedNodes && x.defaultSlottedNodes.length ? "label" : "label label__hidden"}"><slot ${slotted("defaultSlottedNodes")}></slot></label><div class="root" part="root">${startTemplate}<input class="control" part="control" id="control" @input="${x => x.handleTextInput()}" @change="${x => x.handleChange()}" ?autofocus="${x => x.autofocus}" ?disabled="${x => x.disabled}" list="${x => x.list}" maxlength="${x => x.maxlength}" minlength="${x => x.minlength}" placeholder="${x => x.placeholder}" ?readonly="${x => x.readOnly}" ?required="${x => x.required}" size="${x => x.size}" :value="${x => x.value}" type="text" inputmode="numeric" min="${x => x.min}" max="${x => x.max}" step="${x => x.step}" aria-atomic="${x => x.ariaAtomic}" aria-busy="${x => x.ariaBusy}" aria-controls="${x => x.ariaControls}" aria-current="${x => x.ariaCurrent}" aria-describedBy="${x => x.ariaDescribedby}" aria-details="${x => x.ariaDetails}" aria-disabled="${x => x.ariaDisabled}" aria-errormessage="${x => x.ariaErrormessage}" aria-flowto="${x => x.ariaFlowto}" aria-haspopup="${x => x.ariaHaspopup}" aria-hidden="${x => x.ariaHidden}" aria-invalid="${x => x.ariaInvalid}" aria-keyshortcuts="${x => x.ariaKeyshortcuts}" aria-label="${x => x.ariaLabel}" aria-labelledby="${x => x.ariaLabelledby}" aria-live="${x => x.ariaLive}" aria-owns="${x => x.ariaOwns}" aria-relevant="${x => x.ariaRelevant}" aria-roledescription="${x => x.ariaRoledescription}" ${ref("control")} />${when(x => !x.hideStep && !x.readOnly && !x.disabled, html`<div class="controls" part="controls"><div class="step-up" part="step-up" @click="${x => x.stepUp()}"><slot name="step-up-glyph">${definition.stepUpGlyph || ""}</slot></div><div class="step-down" part="step-down" @click="${x => x.stepDown()}"><slot name="step-down-glyph">${definition.stepDownGlyph || ""}</slot></div></div>`)} ${endTemplate}</div></template>`;
+const numberFieldTemplate = (context, definition) => html`<template class="${x => x.readOnly ? "readonly" : ""}"><label part="label" for="control" class="${x => x.defaultSlottedNodes && x.defaultSlottedNodes.length ? "label" : "label label__hidden"}"><slot ${slotted("defaultSlottedNodes")}></slot></label><div class="root" part="root">${startTemplate}<input class="control" part="control" id="control" @input="${x => x.handleTextInput()}" @change="${x => x.handleChange()}" @keydown="${(x, c) => x.handleKeyDown(c.event)}" ?autofocus="${x => x.autofocus}" ?disabled="${x => x.disabled}" list="${x => x.list}" maxlength="${x => x.maxlength}" minlength="${x => x.minlength}" placeholder="${x => x.placeholder}" ?readonly="${x => x.readOnly}" ?required="${x => x.required}" size="${x => x.size}" :value="${x => x.value}" type="text" inputmode="numeric" min="${x => x.min}" max="${x => x.max}" step="${x => x.step}" aria-atomic="${x => x.ariaAtomic}" aria-busy="${x => x.ariaBusy}" aria-controls="${x => x.ariaControls}" aria-current="${x => x.ariaCurrent}" aria-describedBy="${x => x.ariaDescribedby}" aria-details="${x => x.ariaDetails}" aria-disabled="${x => x.ariaDisabled}" aria-errormessage="${x => x.ariaErrormessage}" aria-flowto="${x => x.ariaFlowto}" aria-haspopup="${x => x.ariaHaspopup}" aria-hidden="${x => x.ariaHidden}" aria-invalid="${x => x.ariaInvalid}" aria-keyshortcuts="${x => x.ariaKeyshortcuts}" aria-label="${x => x.ariaLabel}" aria-labelledby="${x => x.ariaLabelledby}" aria-live="${x => x.ariaLive}" aria-owns="${x => x.ariaOwns}" aria-relevant="${x => x.ariaRelevant}" aria-roledescription="${x => x.ariaRoledescription}" ${ref("control")} />${when(x => !x.hideStep && !x.readOnly && !x.disabled, html`<div class="controls" part="controls"><div class="step-up" part="step-up" @click="${x => x.stepUp()}"><slot name="step-up-glyph">${definition.stepUpGlyph || ""}</slot></div><div class="step-down" part="step-down" @click="${x => x.stepDown()}"><slot name="step-down-glyph">${definition.stepDownGlyph || ""}</slot></div></div>`)} ${endTemplate}</div></template>`;
 
 /**
  * The template for the {@link @microsoft/fast-foundation#(TextField:class)} component.
@@ -15793,6 +16197,27 @@ class NumberField extends FormAssociatedNumberField {
   handleChange() {
     this.$emit("change");
   }
+  /**
+   * Handles the internal control's `keydown` event
+   * @internal
+   */
+
+
+  handleKeyDown(e) {
+    const key = e.key;
+
+    switch (key) {
+      case keyArrowUp:
+        this.stepUp();
+        return false;
+
+      case keyArrowDown:
+        this.stepDown();
+        return false;
+    }
+
+    return true;
+  }
 
 }
 
@@ -15842,12 +16267,13 @@ __decorate([observable], NumberField.prototype, "defaultSlottedNodes", void 0);
 
 applyMixins(NumberField, StartEnd, DelegatesARIATextbox);
 
+const progressSegments = 44;
 /**
  * The template for the {@link @microsoft/fast-foundation#BaseProgress} component.
  * @public
  */
 
-const progressRingTemplate = (context, definition) => html`<template role="progressbar" aria-valuenow="${x => x.value}" aria-valuemin="${x => x.min}" aria-valuemax="${x => x.max}" class="${x => x.paused ? "paused" : ""}">${when(x => typeof x.value === "number", html`<svg class="progress" part="progress" viewBox="0 0 16 16" slot="determinate"><circle class="background" part="background" cx="8px" cy="8px" r="7px"></circle><circle class="determinate" part="determinate" style="stroke-dasharray: ${x => 44 * x.value / 100}px 44px" cx="8px" cy="8px" r="7px"></circle></svg>`)} ${when(x => typeof x.value !== "number", html`<slot name="indeterminate" slot="indeterminate">${definition.indeterminateIndicator || ""}</slot>`)}</template>`;
+const progressRingTemplate = (context, definition) => html`<template role="progressbar" aria-valuenow="${x => x.value}" aria-valuemin="${x => x.min}" aria-valuemax="${x => x.max}" class="${x => x.paused ? "paused" : ""}">${when(x => typeof x.value === "number", html`<svg class="progress" part="progress" viewBox="0 0 16 16" slot="determinate"><circle class="background" part="background" cx="8px" cy="8px" r="7px"></circle><circle class="determinate" part="determinate" style="stroke-dasharray: ${x => progressSegments * x.percentComplete / 100}px ${progressSegments}px" cx="8px" cy="8px" r="7px"></circle></svg>`)} ${when(x => typeof x.value !== "number", html`<slot name="indeterminate" slot="indeterminate">${definition.indeterminateIndicator || ""}</slot>`)}</template>`;
 
 /**
  * An Progress HTML Element.
@@ -15856,7 +16282,53 @@ const progressRingTemplate = (context, definition) => html`<template role="progr
  * @public
  */
 
-class BaseProgress extends FoundationElement {}
+class BaseProgress extends FoundationElement {
+  constructor() {
+    super(...arguments);
+    /**
+     * Indicates progress in %
+     * @internal
+     */
+
+    this.percentComplete = 0;
+  }
+
+  valueChanged() {
+    if (this.$fastController.isConnected) {
+      this.updatePercentComplete();
+    }
+  }
+
+  minChanged() {
+    if (this.$fastController.isConnected) {
+      this.updatePercentComplete();
+    }
+  }
+
+  maxChanged() {
+    if (this.$fastController.isConnected) {
+      this.updatePercentComplete();
+    }
+  }
+  /**
+   * @internal
+   */
+
+
+  connectedCallback() {
+    super.connectedCallback();
+    this.updatePercentComplete();
+  }
+
+  updatePercentComplete() {
+    const min = typeof this.min === "number" ? this.min : 0;
+    const max = typeof this.max === "number" ? this.max : 100;
+    const value = typeof this.value === "number" ? this.value : 0;
+    const range = max - min;
+    this.percentComplete = range === 0 ? 0 : Math.fround((value - min) / range * 100);
+  }
+
+}
 
 __decorate([attr({
   converter: nullableNumberConverter
@@ -15874,12 +16346,14 @@ __decorate([attr({
   mode: "boolean"
 })], BaseProgress.prototype, "paused", void 0);
 
+__decorate([observable], BaseProgress.prototype, "percentComplete", void 0);
+
 /**
  * The template for the {@link @microsoft/fast-foundation#BaseProgress} component.
  * @public
  */
 
-const progressTemplate = (context, defintion) => html`<template role="progressbar" aria-valuenow="${x => x.value}" aria-valuemin="${x => x.min}" aria-valuemax="${x => x.max}" class="${x => x.paused ? "paused" : ""}">${when(x => typeof x.value === "number", html`<div class="progress" part="progress" slot="determinate"><div class="determinate" part="determinate" style="width: ${x => x.value}%"></div></div>`)} ${when(x => typeof x.value !== "number", html`<div class="progress" part="progress" slot="indeterminate"><slot class="indeterminate" name="indeterminate">${defintion.indeterminateIndicator1 || ""} ${defintion.indeterminateIndicator2 || ""}</slot></div>`)}</template>`;
+const progressTemplate = (context, defintion) => html`<template role="progressbar" aria-valuenow="${x => x.value}" aria-valuemin="${x => x.min}" aria-valuemax="${x => x.max}" class="${x => x.paused ? "paused" : ""}">${when(x => typeof x.value === "number", html`<div class="progress" part="progress" slot="determinate"><div class="determinate" part="determinate" style="width: ${x => x.percentComplete}%"></div></div>`)} ${when(x => typeof x.value !== "number", html`<div class="progress" part="progress" slot="indeterminate"><slot class="indeterminate" name="indeterminate">${defintion.indeterminateIndicator1 || ""} ${defintion.indeterminateIndicator2 || ""}</slot></div>`)}</template>`;
 
 /**
  * The template for the {@link @microsoft/fast-foundation#RadioGroup} component.
@@ -16926,10 +17400,14 @@ __decorate([attr({
  * @public
  */
 
-const horizontalScrollTemplate = (context, definition) => html`<template class="horizontal-scroll" @keyup="${(x, c) => x.keyupHandler(c.event)}">${startTemplate}<div class="scroll-area"><div class="scroll-view" @scroll="${x => x.scrolled()}" ${ref("scrollContainer")}><div class="content-container"><slot ${slotted({
-  property: "scrollItems",
-  filter: elements()
-})}></slot></div></div>${when(x => x.view !== "mobile", html`<div class="scroll scroll-prev" part="scroll-prev" ${ref("previousFlipperContainer")}><div class="scroll-action"><slot name="previous-flipper">${definition.previousFlipper || ""}</slot></div></div><div class="scroll scroll-next" part="scroll-next" ${ref("nextFlipperContainer")}><div class="scroll-action"><slot name="next-flipper">${definition.nextFlipper || ""}</slot></div></div>`)}</div>${endTemplate}</template>`;
+const horizontalScrollTemplate = (context, definition) => {
+  var _a, _b;
+
+  return html`<template class="horizontal-scroll" @keyup="${(x, c) => x.keyupHandler(c.event)}">${startTemplate}<div class="scroll-area"><div class="scroll-view" @scroll="${x => x.scrolled()}" ${ref("scrollContainer")}><div class="content-container"><slot ${slotted({
+    property: "scrollItems",
+    filter: elements()
+  })}></slot></div></div>${when(x => x.view !== "mobile", html`<div class="scroll scroll-prev" part="scroll-prev" ${ref("previousFlipperContainer")}><div class="scroll-action"><slot name="previous-flipper">${definition.previousFlipper instanceof Function ? definition.previousFlipper(context, definition) : (_a = definition.previousFlipper) !== null && _a !== void 0 ? _a : ""}</slot></div></div><div class="scroll scroll-next" part="scroll-next" ${ref("nextFlipperContainer")}><div class="scroll-action"><slot name="next-flipper">${definition.nextFlipper instanceof Function ? definition.nextFlipper(context, definition) : (_b = definition.nextFlipper) !== null && _b !== void 0 ? _b : ""}</slot></div></div>`)}</div>${endTemplate}</template>`;
+};
 
 class _Select extends Listbox {}
 /**
@@ -17696,23 +18174,23 @@ class Slider extends FormAssociatedSlider {
     this.mode = SliderMode.singleValue;
 
     this.keypressHandler = e => {
-      if (e.keyCode !== keyCodeTab) {
-        e.preventDefault();
-      }
-
       if (e.keyCode === keyCodeHome) {
+        e.preventDefault();
         this.value = `${this.min}`;
       } else if (e.keyCode === keyCodeEnd) {
+        e.preventDefault();
         this.value = `${this.max}`;
       } else if (!e.shiftKey) {
         switch (e.keyCode) {
           case keyCodeArrowRight:
           case keyCodeArrowUp:
+            e.preventDefault();
             this.increment();
             break;
 
           case keyCodeArrowLeft:
           case keyCodeArrowDown:
+            e.preventDefault();
             this.decrement();
             break;
         }
@@ -17773,7 +18251,7 @@ class Slider extends FormAssociatedSlider {
 
 
       const sourceEvent = window.TouchEvent && e instanceof TouchEvent ? e.touches[0] : e;
-      const eventValue = this.orientation === Orientation.horizontal ? sourceEvent.pageX - this.trackLeft : sourceEvent.pageY;
+      const eventValue = this.orientation === Orientation.horizontal ? sourceEvent.pageX - document.documentElement.scrollLeft - this.trackLeft : sourceEvent.pageY - document.documentElement.scrollTop;
       this.value = `${this.calculateNewValue(eventValue)}`;
     };
 
@@ -17808,7 +18286,7 @@ class Slider extends FormAssociatedSlider {
         e.target.focus();
         window.addEventListener("mouseup", this.handleWindowMouseUp);
         window.addEventListener("mousemove", this.handleMouseMove);
-        const controlValue = this.orientation === Orientation.horizontal ? e.pageX - this.trackLeft : e.pageY;
+        const controlValue = this.orientation === Orientation.horizontal ? e.pageX - document.documentElement.scrollLeft - this.trackLeft : e.pageY - document.documentElement.scrollTop;
         this.value = `${this.calculateNewValue(controlValue)}`;
       }
     };
@@ -18851,19 +19329,10 @@ class Toolbar extends FoundationElement {
       Observable.notify(this, "activeIndex");
     }
   }
-  /**
-   * Prepare the slotted elements which can be focusable.
-   *
-   * @param prev - The previous list of slotted elements.
-   * @param next - The new list of slotted elements.
-   * @internal
-   */
 
-
-  slottedItemsChanged(prev, next) {
+  slottedItemsChanged() {
     if (this.$fastController.isConnected) {
-      this.focusableElements = next.reduce(Toolbar.reduceFocusableItems, []);
-      this.setFocusableElements();
+      this.reduceFocusableElements();
     }
   }
   /**
@@ -18951,6 +19420,26 @@ class Toolbar extends FoundationElement {
 
     this.setFocusedElement(nextIndex);
     return true;
+  }
+  /**
+   * get all the slotted elements
+   * @internal
+   */
+
+
+  get allSlottedItems() {
+    return [...this.start.assignedElements(), ...this.slottedItems, ...this.end.assignedElements()];
+  }
+  /**
+   * Prepare the slotted elements which can be focusable.
+   *
+   * @internal
+   */
+
+
+  reduceFocusableElements() {
+    this.focusableElements = this.allSlottedItems.reduce(Toolbar.reduceFocusableItems, []);
+    this.setFocusableElements();
   }
   /**
    * Set the activeIndex and focus the corresponding control.
@@ -19043,7 +19532,7 @@ applyMixins(Toolbar, StartEnd, DelegatesARIAToolbar);
  */
 
 const tooltipTemplate = (context, definition) => {
-  return html` ${when(x => x.tooltipVisible, html`<${context.tagFor(AnchoredRegion)} fixed-placement="true" auto-update-mode="${x => x.autoUpdateMode}" vertical-positioning-mode="${x => x.verticalPositioningMode}" vertical-default-position="${x => x.verticalDefaultPosition}" vertical-inset="${x => x.verticalInset}" vertical-scaling="${x => x.verticalScaling}" horizontal-positioning-mode="${x => x.horizontalPositioningMode}" horizontal-default-position="${x => x.horizontalDefaultPosition}" horizontal-scaling="${x => x.horizontalScaling}" horizontal-inset="${x => x.horizontalInset}" dir="${x => x.currentDirection}" ${ref("region")}><div class="tooltip" part="tooltip" role="tooltip"><slot></slot></div></${context.tagFor(AnchoredRegion)}>`)} `;
+  return html` ${when(x => x.tooltipVisible, html`<${context.tagFor(AnchoredRegion)} fixed-placement="true" auto-update-mode="${x => x.autoUpdateMode}" vertical-positioning-mode="${x => x.verticalPositioningMode}" vertical-default-position="${x => x.verticalDefaultPosition}" vertical-inset="${x => x.verticalInset}" vertical-scaling="${x => x.verticalScaling}" horizontal-positioning-mode="${x => x.horizontalPositioningMode}" horizontal-default-position="${x => x.horizontalDefaultPosition}" horizontal-scaling="${x => x.horizontalScaling}" horizontal-inset="${x => x.horizontalInset}" vertical-viewport-lock="${x => x.horizontalViewportLock}" horizontal-viewport-lock="${x => x.verticalViewportLock}" dir="${x => x.currentDirection}" ${ref("region")}><div class="tooltip" part="tooltip" role="tooltip"><slot></slot></div></${context.tagFor(AnchoredRegion)}>`)} `;
 };
 
 /**
@@ -19370,7 +19859,6 @@ class Tooltip extends FoundationElement {
         return;
       }
 
-      this.viewportElement = document.body;
       this.region.viewportElement = this.viewportElement;
       this.region.anchorElement = this.anchorElement;
       this.region.addEventListener("positionchange", this.handlePositionChange);
@@ -19496,7 +19984,6 @@ class Tooltip extends FoundationElement {
   }
 
 }
-Tooltip.DirectionAttributeName = "dir";
 
 __decorate([attr({
   mode: "boolean"
@@ -19511,6 +19998,14 @@ __decorate([attr], Tooltip.prototype, "position", void 0);
 __decorate([attr({
   attribute: "auto-update-mode"
 })], Tooltip.prototype, "autoUpdateMode", void 0);
+
+__decorate([attr({
+  attribute: "horizontal-viewport-lock"
+})], Tooltip.prototype, "horizontalViewportLock", void 0);
+
+__decorate([attr({
+  attribute: "vertical-viewport-lock"
+})], Tooltip.prototype, "verticalViewportLock", void 0);
 
 __decorate([observable], Tooltip.prototype, "anchorElement", void 0);
 
@@ -21776,6 +22271,29 @@ const SwatchRGB = Object.freeze({
 
 });
 /**
+ * Runtime test for an objects conformance with the SwatchRGB interface.
+ * @internal
+ */
+
+function isSwatchRGB(value) {
+  const test = {
+    r: 0,
+    g: 0,
+    b: 0,
+    toColorString: () => "",
+    contrast: () => 0,
+    relativeLuminance: 0
+  };
+
+  for (const key in test) {
+    if (typeof test[key] !== typeof value[key]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+/**
  * A RGB implementation of {@link Swatch}
  * @internal
  */
@@ -21844,13 +22362,23 @@ function directionByIsDark(color) {
   return isDark(color) ? -1 : 1;
 }
 
+function create$1(rOrSource, g, b) {
+  if (typeof rOrSource === "number") {
+    return PaletteRGB.from(SwatchRGB.create(rOrSource, g, b));
+  } else {
+    return PaletteRGB.from(rOrSource);
+  }
+}
+
+function from(source) {
+  return isSwatchRGB(source) ? PaletteRGBImpl.from(source) : PaletteRGBImpl.from(SwatchRGB.create(source.r, source.g, source.b));
+}
 /** @public */
 
-const PaletteRGB = Object.freeze({
-  create(source) {
-    return PaletteRGBImpl.from(source);
-  }
 
+const PaletteRGB = Object.freeze({
+  create: create$1,
+  from
 });
 /**
  * A {@link Palette} representing RGB swatch values.
@@ -22239,207 +22767,276 @@ function neutralStrokeDivider(palette, reference, delta) {
 }
 
 const {
-  create: create$1
+  create: create$2
 } = DesignToken; // General tokens
 
 /** @public */
 
-const bodyFont = create$1("body-font").withDefault('aktiv-grotesk, "Segoe UI", Arial, Helvetica, sans-serif');
+const bodyFont = create$2("body-font").withDefault('aktiv-grotesk, "Segoe UI", Arial, Helvetica, sans-serif');
 /** @public */
 
-const baseHeightMultiplier = create$1("base-height-multiplier").withDefault(10);
+const baseHeightMultiplier = create$2("base-height-multiplier").withDefault(10);
 /** @public */
 
-const baseHorizontalSpacingMultiplier = create$1("base-horizontal-spacing-multiplier").withDefault(3);
+const baseHorizontalSpacingMultiplier = create$2("base-horizontal-spacing-multiplier").withDefault(3);
 /** @public */
 
-const baseLayerLuminance = create$1("base-layer-luminance").withDefault(StandardLuminance.DarkMode);
+const baseLayerLuminance = create$2("base-layer-luminance").withDefault(StandardLuminance.DarkMode);
 /** @public */
 
-const controlCornerRadius = create$1("control-corner-radius").withDefault(4);
+const controlCornerRadius = create$2("control-corner-radius").withDefault(4);
 /** @public */
 
-const density = create$1("density").withDefault(0);
+const density = create$2("density").withDefault(0);
 /** @public */
 
-const designUnit = create$1("design-unit").withDefault(4);
+const designUnit = create$2("design-unit").withDefault(4);
 /** @public */
 
-const direction = create$1("direction").withDefault(Direction.ltr);
+const direction = create$2("direction").withDefault(Direction.ltr);
 /** @public */
 
-const disabledOpacity = create$1("disabled-opacity").withDefault(0.3);
+const disabledOpacity = create$2("disabled-opacity").withDefault(0.3);
 /** @public */
 
-const strokeWidth = create$1("stroke-width").withDefault(1);
+const strokeWidth = create$2("stroke-width").withDefault(1);
 /** @public */
 
-const focusStrokeWidth = create$1("focus-stroke-width").withDefault(2); // Typography values
-
-/** @public */
-
-const typeRampBaseFontSize = create$1("type-ramp-base-font-size").withDefault("14px");
-/** @public */
-
-const typeRampBaseLineHeight = create$1("type-ramp-base-line-height").withDefault("20px");
-/** @public */
-
-const typeRampMinus1FontSize = create$1("type-ramp-minus-1-font-size").withDefault("12px");
-/** @public */
-
-const typeRampMinus1LineHeight = create$1("type-ramp-minus-1-line-height").withDefault("16px");
-/** @public */
-
-const typeRampMinus2FontSize = create$1("type-ramp-minus-2-font-size").withDefault("10px");
-/** @public */
-
-const typeRampMinus2LineHeight = create$1("type-ramp-minus-2-line-height").withDefault("16px");
-/** @public */
-
-const typeRampPlus1FontSize = create$1("type-ramp-plus-1-font-size").withDefault("16px");
-/** @public */
-
-const typeRampPlus1LineHeight = create$1("type-ramp-plus-1-line-height").withDefault("24px");
-/** @public */
-
-const typeRampPlus2FontSize = create$1("type-ramp-plus-2-font-size").withDefault("20px");
-/** @public */
-
-const typeRampPlus2LineHeight = create$1("type-ramp-plus-2-line-height").withDefault("28px");
-/** @public */
-
-const typeRampPlus3FontSize = create$1("type-ramp-plus-3-font-size").withDefault("28px");
-/** @public */
-
-const typeRampPlus3LineHeight = create$1("type-ramp-plus-3-line-height").withDefault("36px");
-/** @public */
-
-const typeRampPlus4FontSize = create$1("type-ramp-plus-4-font-size").withDefault("34px");
-/** @public */
-
-const typeRampPlus4LineHeight = create$1("type-ramp-plus-4-line-height").withDefault("44px");
-/** @public */
-
-const typeRampPlus5FontSize = create$1("type-ramp-plus-5-font-size").withDefault("46px");
-/** @public */
-
-const typeRampPlus5LineHeight = create$1("type-ramp-plus-5-line-height").withDefault("56px");
-/** @public */
-
-const typeRampPlus6FontSize = create$1("type-ramp-plus-6-font-size").withDefault("60px");
-/** @public */
-
-const typeRampPlus6LineHeight = create$1("type-ramp-plus-6-line-height").withDefault("72px"); // Color recipe values
+const focusStrokeWidth = create$2("focus-stroke-width").withDefault(2); // Typography values
 
 /** @public */
 
-const accentFillRestDelta = create$1("accent-fill-rest-delta").withDefault(0);
+const typeRampBaseFontSize = create$2("type-ramp-base-font-size").withDefault("14px");
 /** @public */
 
-const accentFillHoverDelta = create$1("accent-fill-hover-delta").withDefault(4);
+const typeRampBaseLineHeight = create$2("type-ramp-base-line-height").withDefault("20px");
 /** @public */
 
-const accentFillActiveDelta = create$1("accent-fill-active-delta").withDefault(-5);
+const typeRampMinus1FontSize = create$2("type-ramp-minus-1-font-size").withDefault("12px");
 /** @public */
 
-const accentFillFocusDelta = create$1("accent-fill-focus-delta").withDefault(0);
+const typeRampMinus1LineHeight = create$2("type-ramp-minus-1-line-height").withDefault("16px");
 /** @public */
 
-const accentForegroundRestDelta = create$1("accent-foreground-rest-delta").withDefault(0);
+const typeRampMinus2FontSize = create$2("type-ramp-minus-2-font-size").withDefault("10px");
 /** @public */
 
-const accentForegroundHoverDelta = create$1("accent-foreground-hover-delta").withDefault(6);
+const typeRampMinus2LineHeight = create$2("type-ramp-minus-2-line-height").withDefault("16px");
 /** @public */
 
-const accentForegroundActiveDelta = create$1("accent-foreground-active-delta").withDefault(-4);
+const typeRampPlus1FontSize = create$2("type-ramp-plus-1-font-size").withDefault("16px");
 /** @public */
 
-const accentForegroundFocusDelta = create$1("accent-foreground-focus-delta").withDefault(0);
+const typeRampPlus1LineHeight = create$2("type-ramp-plus-1-line-height").withDefault("24px");
 /** @public */
 
-const neutralFillRestDelta = create$1("neutral-fill-rest-delta").withDefault(7);
+const typeRampPlus2FontSize = create$2("type-ramp-plus-2-font-size").withDefault("20px");
 /** @public */
 
-const neutralFillHoverDelta = create$1("neutral-fill-hover-delta").withDefault(10);
+const typeRampPlus2LineHeight = create$2("type-ramp-plus-2-line-height").withDefault("28px");
 /** @public */
 
-const neutralFillActiveDelta = create$1("neutral-fill-active-delta").withDefault(5);
+const typeRampPlus3FontSize = create$2("type-ramp-plus-3-font-size").withDefault("28px");
 /** @public */
 
-const neutralFillFocusDelta = create$1("neutral-fill-focus-delta").withDefault(0);
+const typeRampPlus3LineHeight = create$2("type-ramp-plus-3-line-height").withDefault("36px");
 /** @public */
 
-const neutralFillInputRestDelta = create$1("neutral-fill-input-rest-delta").withDefault(0);
+const typeRampPlus4FontSize = create$2("type-ramp-plus-4-font-size").withDefault("34px");
 /** @public */
 
-const neutralFillInputHoverDelta = create$1("neutral-fill-input-hover-delta").withDefault(0);
+const typeRampPlus4LineHeight = create$2("type-ramp-plus-4-line-height").withDefault("44px");
 /** @public */
 
-const neutralFillInputActiveDelta = create$1("neutral-fill-input-active-delta").withDefault(0);
+const typeRampPlus5FontSize = create$2("type-ramp-plus-5-font-size").withDefault("46px");
 /** @public */
 
-const neutralFillInputFocusDelta = create$1("neutral-fill-input-focus-delta").withDefault(0);
+const typeRampPlus5LineHeight = create$2("type-ramp-plus-5-line-height").withDefault("56px");
 /** @public */
 
-const neutralFillStealthRestDelta = create$1("neutral-fill-stealth-rest-delta").withDefault(0);
+const typeRampPlus6FontSize = create$2("type-ramp-plus-6-font-size").withDefault("60px");
 /** @public */
 
-const neutralFillStealthHoverDelta = create$1("neutral-fill-stealth-hover-delta").withDefault(5);
-/** @public */
-
-const neutralFillStealthActiveDelta = create$1("neutral-fill-stealth-active-delta").withDefault(3);
-/** @public */
-
-const neutralFillStealthFocusDelta = create$1("neutral-fill-stealth-focus-delta").withDefault(0);
-/** @public */
-
-const neutralFillStrongRestDelta = create$1("neutral-fill-strong-rest-delta").withDefault(0);
-/** @public */
-
-const neutralFillStrongHoverDelta = create$1("neutral-fill-strong-hover-delta").withDefault(8);
-/** @public */
-
-const neutralFillStrongActiveDelta = create$1("neutral-fill-strong-active-delta").withDefault(-5);
-/** @public */
-
-const neutralFillStrongFocusDelta = create$1("neutral-fill-strong-focus-delta").withDefault(0);
-/** @public */
-
-const neutralFillLayerRestDelta = create$1("neutral-fill-layer-rest-delta").withDefault(3);
-/** @public */
-
-const neutralStrokeRestDelta = create$1("neutral-stroke-rest-delta").withDefault(25);
-/** @public */
-
-const neutralStrokeHoverDelta = create$1("neutral-stroke-hover-delta").withDefault(40);
-/** @public */
-
-const neutralStrokeActiveDelta = create$1("neutral-stroke-active-delta").withDefault(16);
-/** @public */
-
-const neutralStrokeFocusDelta = create$1("neutral-stroke-focus-delta").withDefault(25);
-/** @public */
-
-const neutralStrokeDividerRestDelta = create$1("neutral-stroke-divider-rest-delta").withDefault(8); // Color recipes
+const typeRampPlus6LineHeight = create$2("type-ramp-plus-6-line-height").withDefault("72px"); // Color recipe values
 
 /** @public */
 
-const neutralPalette = create$1({
+const accentFillRestDelta = create$2("accent-fill-rest-delta").withDefault(0);
+/** @public */
+
+const accentFillHoverDelta = create$2("accent-fill-hover-delta").withDefault(4);
+/** @public */
+
+const accentFillActiveDelta = create$2("accent-fill-active-delta").withDefault(-5);
+/** @public */
+
+const accentFillFocusDelta = create$2("accent-fill-focus-delta").withDefault(0);
+/** @public */
+
+const accentForegroundRestDelta = create$2("accent-foreground-rest-delta").withDefault(0);
+/** @public */
+
+const accentForegroundHoverDelta = create$2("accent-foreground-hover-delta").withDefault(6);
+/** @public */
+
+const accentForegroundActiveDelta = create$2("accent-foreground-active-delta").withDefault(-4);
+/** @public */
+
+const accentForegroundFocusDelta = create$2("accent-foreground-focus-delta").withDefault(0);
+/** @public */
+
+const neutralFillRestDelta = create$2("neutral-fill-rest-delta").withDefault(7);
+/** @public */
+
+const neutralFillHoverDelta = create$2("neutral-fill-hover-delta").withDefault(10);
+/** @public */
+
+const neutralFillActiveDelta = create$2("neutral-fill-active-delta").withDefault(5);
+/** @public */
+
+const neutralFillFocusDelta = create$2("neutral-fill-focus-delta").withDefault(0);
+/** @public */
+
+const neutralFillInputRestDelta = create$2("neutral-fill-input-rest-delta").withDefault(0);
+/** @public */
+
+const neutralFillInputHoverDelta = create$2("neutral-fill-input-hover-delta").withDefault(0);
+/** @public */
+
+const neutralFillInputActiveDelta = create$2("neutral-fill-input-active-delta").withDefault(0);
+/** @public */
+
+const neutralFillInputFocusDelta = create$2("neutral-fill-input-focus-delta").withDefault(0);
+/** @public */
+
+const neutralFillStealthRestDelta = create$2("neutral-fill-stealth-rest-delta").withDefault(0);
+/** @public */
+
+const neutralFillStealthHoverDelta = create$2("neutral-fill-stealth-hover-delta").withDefault(5);
+/** @public */
+
+const neutralFillStealthActiveDelta = create$2("neutral-fill-stealth-active-delta").withDefault(3);
+/** @public */
+
+const neutralFillStealthFocusDelta = create$2("neutral-fill-stealth-focus-delta").withDefault(0);
+/** @public */
+
+const neutralFillStrongRestDelta = create$2("neutral-fill-strong-rest-delta").withDefault(0);
+/** @public */
+
+const neutralFillStrongHoverDelta = create$2("neutral-fill-strong-hover-delta").withDefault(8);
+/** @public */
+
+const neutralFillStrongActiveDelta = create$2("neutral-fill-strong-active-delta").withDefault(-5);
+/** @public */
+
+const neutralFillStrongFocusDelta = create$2("neutral-fill-strong-focus-delta").withDefault(0);
+/** @public */
+
+const neutralFillLayerRestDelta = create$2("neutral-fill-layer-rest-delta").withDefault(3);
+/** @public */
+
+const neutralStrokeRestDelta = create$2("neutral-stroke-rest-delta").withDefault(25);
+/** @public */
+
+const neutralStrokeHoverDelta = create$2("neutral-stroke-hover-delta").withDefault(40);
+/** @public */
+
+const neutralStrokeActiveDelta = create$2("neutral-stroke-active-delta").withDefault(16);
+/** @public */
+
+const neutralStrokeFocusDelta = create$2("neutral-stroke-focus-delta").withDefault(25);
+/** @public */
+
+const neutralStrokeDividerRestDelta = create$2("neutral-stroke-divider-rest-delta").withDefault(8); // Color recipes
+
+/** @public */
+
+const neutralPalette = create$2({
   name: "neutral-palette",
   cssCustomPropertyName: null
 }).withDefault(PaletteRGB.create(middleGrey));
 /** @public */
 
-const accentPalette = create$1({
+const accentPalette = create$2({
   name: "accent-palette",
   cssCustomPropertyName: null
-}).withDefault(PaletteRGB.create(accentBase));
+}).withDefault(PaletteRGB.create(accentBase)); // Neutral Layer Card Container
+
 /** @public */
 
-const fillColor = create$1("fill-color").withDefault(element => {
-  const palette = neutralPalette.getValueFor(element);
-  return palette.get(palette.swatches.length - 5);
+const neutralLayerCardContainerRecipe = create$2({
+  name: "neutral-layer-card-container-recipe",
+  cssCustomPropertyName: null
+}).withDefault({
+  evaluate: element => neutralLayerCardContainer(neutralPalette.getValueFor(element), baseLayerLuminance.getValueFor(element), neutralFillLayerRestDelta.getValueFor(element))
 });
+/** @public */
+
+const neutralLayerCardContainer$1 = create$2("neutral-layer-card-container").withDefault(element => neutralLayerCardContainerRecipe.getValueFor(element).evaluate(element)); // Neutral Layer Floating
+
+/** @public */
+
+const neutralLayerFloatingRecipe = create$2({
+  name: "neutral-layer-floating-recipe",
+  cssCustomPropertyName: null
+}).withDefault({
+  evaluate: element => neutralLayerFloating(neutralPalette.getValueFor(element), baseLayerLuminance.getValueFor(element), neutralFillLayerRestDelta.getValueFor(element))
+});
+/** @public */
+
+const neutralLayerFloating$1 = create$2("neutral-layer-floating").withDefault(element => neutralLayerFloatingRecipe.getValueFor(element).evaluate(element)); // Neutral Layer 1
+
+/** @public */
+
+const neutralLayer1Recipe = create$2({
+  name: "neutral-layer-1-recipe",
+  cssCustomPropertyName: null
+}).withDefault({
+  evaluate: element => neutralLayer1(neutralPalette.getValueFor(element), baseLayerLuminance.getValueFor(element))
+});
+/** @public */
+
+const neutralLayer1$1 = create$2("neutral-layer-1").withDefault(element => neutralLayer1Recipe.getValueFor(element).evaluate(element)); // Neutral Layer 2
+
+/** @public */
+
+const neutralLayer2Recipe = create$2({
+  name: "neutral-layer-2-recipe",
+  cssCustomPropertyName: null
+}).withDefault({
+  evaluate: element => neutralLayer2(neutralPalette.getValueFor(element), baseLayerLuminance.getValueFor(element), neutralFillLayerRestDelta.getValueFor(element), neutralFillRestDelta.getValueFor(element), neutralFillHoverDelta.getValueFor(element), neutralFillActiveDelta.getValueFor(element))
+});
+/** @public */
+
+const neutralLayer2$1 = create$2("neutral-layer-2").withDefault(element => neutralLayer2Recipe.getValueFor(element).evaluate(element)); // Neutral Layer 3
+
+/** @public */
+
+const neutralLayer3Recipe = create$2({
+  name: "neutral-layer-3-recipe",
+  cssCustomPropertyName: null
+}).withDefault({
+  evaluate: element => neutralLayer3(neutralPalette.getValueFor(element), baseLayerLuminance.getValueFor(element), neutralFillLayerRestDelta.getValueFor(element), neutralFillRestDelta.getValueFor(element), neutralFillHoverDelta.getValueFor(element), neutralFillActiveDelta.getValueFor(element))
+});
+/** @public */
+
+const neutralLayer3$1 = create$2("neutral-layer-3").withDefault(element => neutralLayer3Recipe.getValueFor(element).evaluate(element)); // Neutral Layer 4
+
+/** @public */
+
+const neutralLayer4Recipe = create$2({
+  name: "neutral-layer-4-recipe",
+  cssCustomPropertyName: null
+}).withDefault({
+  evaluate: element => neutralLayer4(neutralPalette.getValueFor(element), baseLayerLuminance.getValueFor(element), neutralFillLayerRestDelta.getValueFor(element), neutralFillRestDelta.getValueFor(element), neutralFillHoverDelta.getValueFor(element), neutralFillActiveDelta.getValueFor(element))
+});
+/** @public */
+
+const neutralLayer4$1 = create$2("neutral-layer-4").withDefault(element => neutralLayer4Recipe.getValueFor(element).evaluate(element));
+/** @public */
+
+const fillColor = create$2("fill-color").withDefault(element => neutralLayer1$1.getValueFor(element));
 var ContrastTarget;
 
 (function (ContrastTarget) {
@@ -22450,7 +23047,7 @@ var ContrastTarget;
 /** @public */
 
 
-const accentFillRecipe = create$1({
+const accentFillRecipe = create$2({
   name: "accent-fill-recipe",
   cssCustomPropertyName: null
 }).withDefault({
@@ -22458,22 +23055,22 @@ const accentFillRecipe = create$1({
 });
 /** @public */
 
-const accentFillRest = create$1("accent-fill-rest").withDefault(element => {
+const accentFillRest = create$2("accent-fill-rest").withDefault(element => {
   return accentFillRecipe.getValueFor(element).evaluate(element).rest;
 });
 /** @public */
 
-const accentFillHover = create$1("accent-fill-hover").withDefault(element => {
+const accentFillHover = create$2("accent-fill-hover").withDefault(element => {
   return accentFillRecipe.getValueFor(element).evaluate(element).hover;
 });
 /** @public */
 
-const accentFillActive = create$1("accent-fill-active").withDefault(element => {
+const accentFillActive = create$2("accent-fill-active").withDefault(element => {
   return accentFillRecipe.getValueFor(element).evaluate(element).active;
 });
 /** @public */
 
-const accentFillFocus = create$1("accent-fill-focus").withDefault(element => {
+const accentFillFocus = create$2("accent-fill-focus").withDefault(element => {
   return accentFillRecipe.getValueFor(element).evaluate(element).focus;
 }); // Foreground On Accent
 
@@ -22483,7 +23080,7 @@ const foregroundOnAccentByContrast = contrast => (element, reference) => {
 /** @public */
 
 
-const foregroundOnAccentRecipe = create$1({
+const foregroundOnAccentRecipe = create$2({
   name: "foreground-on-accent-recipe",
   cssCustomPropertyName: null
 }).withDefault({
@@ -22491,19 +23088,19 @@ const foregroundOnAccentRecipe = create$1({
 });
 /** @public */
 
-const foregroundOnAccentRest = create$1("foreground-on-accent-rest").withDefault(element => foregroundOnAccentRecipe.getValueFor(element).evaluate(element, accentFillRest.getValueFor(element)));
+const foregroundOnAccentRest = create$2("foreground-on-accent-rest").withDefault(element => foregroundOnAccentRecipe.getValueFor(element).evaluate(element, accentFillRest.getValueFor(element)));
 /** @public */
 
-const foregroundOnAccentHover = create$1("foreground-on-accent-hover").withDefault(element => foregroundOnAccentRecipe.getValueFor(element).evaluate(element, accentFillHover.getValueFor(element)));
+const foregroundOnAccentHover = create$2("foreground-on-accent-hover").withDefault(element => foregroundOnAccentRecipe.getValueFor(element).evaluate(element, accentFillHover.getValueFor(element)));
 /** @public */
 
-const foregroundOnAccentActive = create$1("foreground-on-accent-active").withDefault(element => foregroundOnAccentRecipe.getValueFor(element).evaluate(element, accentFillActive.getValueFor(element)));
+const foregroundOnAccentActive = create$2("foreground-on-accent-active").withDefault(element => foregroundOnAccentRecipe.getValueFor(element).evaluate(element, accentFillActive.getValueFor(element)));
 /** @public */
 
-const foregroundOnAccentFocus = create$1("foreground-on-accent-focus").withDefault(element => foregroundOnAccentRecipe.getValueFor(element).evaluate(element, accentFillFocus.getValueFor(element)));
+const foregroundOnAccentFocus = create$2("foreground-on-accent-focus").withDefault(element => foregroundOnAccentRecipe.getValueFor(element).evaluate(element, accentFillFocus.getValueFor(element)));
 /** @public */
 
-const foregroundOnAccentLargeRecipe = create$1({
+const foregroundOnAccentLargeRecipe = create$2({
   name: "foreground-on-accent-large-recipe",
   cssCustomPropertyName: null
 }).withDefault({
@@ -22511,22 +23108,22 @@ const foregroundOnAccentLargeRecipe = create$1({
 });
 /** @public */
 
-const foregroundOnAccentRestLarge = create$1("foreground-on-accent-rest-large").withDefault(element => foregroundOnAccentLargeRecipe.getValueFor(element).evaluate(element, accentFillRest.getValueFor(element)));
+const foregroundOnAccentRestLarge = create$2("foreground-on-accent-rest-large").withDefault(element => foregroundOnAccentLargeRecipe.getValueFor(element).evaluate(element, accentFillRest.getValueFor(element)));
 /** @public */
 
-const foregroundOnAccentHoverLarge = create$1("foreground-on-accent-hover-large").withDefault(element => foregroundOnAccentLargeRecipe.getValueFor(element).evaluate(element, accentFillHover.getValueFor(element)));
+const foregroundOnAccentHoverLarge = create$2("foreground-on-accent-hover-large").withDefault(element => foregroundOnAccentLargeRecipe.getValueFor(element).evaluate(element, accentFillHover.getValueFor(element)));
 /** @public */
 
-const foregroundOnAccentActiveLarge = create$1("foreground-on-accent-active-large").withDefault(element => foregroundOnAccentLargeRecipe.getValueFor(element).evaluate(element, accentFillActive.getValueFor(element)));
+const foregroundOnAccentActiveLarge = create$2("foreground-on-accent-active-large").withDefault(element => foregroundOnAccentLargeRecipe.getValueFor(element).evaluate(element, accentFillActive.getValueFor(element)));
 /** @public */
 
-const foregroundOnAccentFocusLarge = create$1("foreground-on-accent-focus-large").withDefault(element => foregroundOnAccentLargeRecipe.getValueFor(element).evaluate(element, accentFillFocus.getValueFor(element))); // Accent Foreground
+const foregroundOnAccentFocusLarge = create$2("foreground-on-accent-focus-large").withDefault(element => foregroundOnAccentLargeRecipe.getValueFor(element).evaluate(element, accentFillFocus.getValueFor(element))); // Accent Foreground
 
 const accentForegroundByContrast = contrast => (element, reference) => accentForeground(accentPalette.getValueFor(element), reference || fillColor.getValueFor(element), contrast, accentForegroundRestDelta.getValueFor(element), accentForegroundHoverDelta.getValueFor(element), accentForegroundActiveDelta.getValueFor(element), accentForegroundFocusDelta.getValueFor(element));
 /** @public */
 
 
-const accentForegroundRecipe = create$1({
+const accentForegroundRecipe = create$2({
   name: "accent-foreground-recipe",
   cssCustomPropertyName: null
 }).withDefault({
@@ -22534,20 +23131,20 @@ const accentForegroundRecipe = create$1({
 });
 /** @public */
 
-const accentForegroundRest = create$1("accent-foreground-rest").withDefault(element => accentForegroundRecipe.getValueFor(element).evaluate(element).rest);
+const accentForegroundRest = create$2("accent-foreground-rest").withDefault(element => accentForegroundRecipe.getValueFor(element).evaluate(element).rest);
 /** @public */
 
-const accentForegroundHover = create$1("accent-foreground-hover").withDefault(element => accentForegroundRecipe.getValueFor(element).evaluate(element).hover);
+const accentForegroundHover = create$2("accent-foreground-hover").withDefault(element => accentForegroundRecipe.getValueFor(element).evaluate(element).hover);
 /** @public */
 
-const accentForegroundActive = create$1("accent-foreground-active").withDefault(element => accentForegroundRecipe.getValueFor(element).evaluate(element).active);
+const accentForegroundActive = create$2("accent-foreground-active").withDefault(element => accentForegroundRecipe.getValueFor(element).evaluate(element).active);
 /** @public */
 
-const accentForegroundFocus = create$1("accent-foreground-focus").withDefault(element => accentForegroundRecipe.getValueFor(element).evaluate(element).focus); // Neutral Fill
+const accentForegroundFocus = create$2("accent-foreground-focus").withDefault(element => accentForegroundRecipe.getValueFor(element).evaluate(element).focus); // Neutral Fill
 
 /** @public */
 
-const neutralFillRecipe = create$1({
+const neutralFillRecipe = create$2({
   name: "neutral-fill-recipe",
   cssCustomPropertyName: null
 }).withDefault({
@@ -22555,20 +23152,20 @@ const neutralFillRecipe = create$1({
 });
 /** @public */
 
-const neutralFillRest = create$1("neutral-fill-rest").withDefault(element => neutralFillRecipe.getValueFor(element).evaluate(element).rest);
+const neutralFillRest = create$2("neutral-fill-rest").withDefault(element => neutralFillRecipe.getValueFor(element).evaluate(element).rest);
 /** @public */
 
-const neutralFillHover = create$1("neutral-fill-hover").withDefault(element => neutralFillRecipe.getValueFor(element).evaluate(element).hover);
+const neutralFillHover = create$2("neutral-fill-hover").withDefault(element => neutralFillRecipe.getValueFor(element).evaluate(element).hover);
 /** @public */
 
-const neutralFillActive = create$1("neutral-fill-active").withDefault(element => neutralFillRecipe.getValueFor(element).evaluate(element).active);
+const neutralFillActive = create$2("neutral-fill-active").withDefault(element => neutralFillRecipe.getValueFor(element).evaluate(element).active);
 /** @public */
 
-const neutralFillFocus = create$1("neutral-fill-focus").withDefault(element => neutralFillRecipe.getValueFor(element).evaluate(element).focus); // Neutral Fill Input
+const neutralFillFocus = create$2("neutral-fill-focus").withDefault(element => neutralFillRecipe.getValueFor(element).evaluate(element).focus); // Neutral Fill Input
 
 /** @public */
 
-const neutralFillInputRecipe = create$1({
+const neutralFillInputRecipe = create$2({
   name: "neutral-fill-input-recipe",
   cssCustomPropertyName: null
 }).withDefault({
@@ -22576,20 +23173,20 @@ const neutralFillInputRecipe = create$1({
 });
 /** @public */
 
-const neutralFillInputRest = create$1("neutral-fill-input-rest").withDefault(element => neutralFillInputRecipe.getValueFor(element).evaluate(element).rest);
+const neutralFillInputRest = create$2("neutral-fill-input-rest").withDefault(element => neutralFillInputRecipe.getValueFor(element).evaluate(element).rest);
 /** @public */
 
-const neutralFillInputHover = create$1("neutral-fill-input-hover").withDefault(element => neutralFillInputRecipe.getValueFor(element).evaluate(element).hover);
+const neutralFillInputHover = create$2("neutral-fill-input-hover").withDefault(element => neutralFillInputRecipe.getValueFor(element).evaluate(element).hover);
 /** @public */
 
-const neutralFillInputActive = create$1("neutral-fill-input-active").withDefault(element => neutralFillInputRecipe.getValueFor(element).evaluate(element).active);
+const neutralFillInputActive = create$2("neutral-fill-input-active").withDefault(element => neutralFillInputRecipe.getValueFor(element).evaluate(element).active);
 /** @public */
 
-const neutralFillInputFocus = create$1("neutral-fill-input-focus").withDefault(element => neutralFillInputRecipe.getValueFor(element).evaluate(element).focus); // Neutral Fill Stealth
+const neutralFillInputFocus = create$2("neutral-fill-input-focus").withDefault(element => neutralFillInputRecipe.getValueFor(element).evaluate(element).focus); // Neutral Fill Stealth
 
 /** @public */
 
-const neutralFillStealthRecipe = create$1({
+const neutralFillStealthRecipe = create$2({
   name: "neutral-fill-stealth-recipe",
   cssCustomPropertyName: null
 }).withDefault({
@@ -22597,20 +23194,20 @@ const neutralFillStealthRecipe = create$1({
 });
 /** @public */
 
-const neutralFillStealthRest = create$1("neutral-fill-stealth-rest").withDefault(element => neutralFillStealthRecipe.getValueFor(element).evaluate(element).rest);
+const neutralFillStealthRest = create$2("neutral-fill-stealth-rest").withDefault(element => neutralFillStealthRecipe.getValueFor(element).evaluate(element).rest);
 /** @public */
 
-const neutralFillStealthHover = create$1("neutral-fill-stealth-hover").withDefault(element => neutralFillStealthRecipe.getValueFor(element).evaluate(element).hover);
+const neutralFillStealthHover = create$2("neutral-fill-stealth-hover").withDefault(element => neutralFillStealthRecipe.getValueFor(element).evaluate(element).hover);
 /** @public */
 
-const neutralFillStealthActive = create$1("neutral-fill-stealth-active").withDefault(element => neutralFillStealthRecipe.getValueFor(element).evaluate(element).active);
+const neutralFillStealthActive = create$2("neutral-fill-stealth-active").withDefault(element => neutralFillStealthRecipe.getValueFor(element).evaluate(element).active);
 /** @public */
 
-const neutralFillStealthFocus = create$1("neutral-fill-stealth-focus").withDefault(element => neutralFillStealthRecipe.getValueFor(element).evaluate(element).focus); // Neutral Fill Strong
+const neutralFillStealthFocus = create$2("neutral-fill-stealth-focus").withDefault(element => neutralFillStealthRecipe.getValueFor(element).evaluate(element).focus); // Neutral Fill Strong
 
 /** @public */
 
-const neutralFillStrongRecipe = create$1({
+const neutralFillStrongRecipe = create$2({
   name: "neutral-fill-strong-recipe",
   cssCustomPropertyName: null
 }).withDefault({
@@ -22618,20 +23215,20 @@ const neutralFillStrongRecipe = create$1({
 });
 /** @public */
 
-const neutralFillStrongRest = create$1("neutral-fill-strong-rest").withDefault(element => neutralFillStrongRecipe.getValueFor(element).evaluate(element).rest);
+const neutralFillStrongRest = create$2("neutral-fill-strong-rest").withDefault(element => neutralFillStrongRecipe.getValueFor(element).evaluate(element).rest);
 /** @public */
 
-const neutralFillStrongHover = create$1("neutral-fill-strong-hover").withDefault(element => neutralFillStrongRecipe.getValueFor(element).evaluate(element).hover);
+const neutralFillStrongHover = create$2("neutral-fill-strong-hover").withDefault(element => neutralFillStrongRecipe.getValueFor(element).evaluate(element).hover);
 /** @public */
 
-const neutralFillStrongActive = create$1("neutral-fill-strong-active").withDefault(element => neutralFillStrongRecipe.getValueFor(element).evaluate(element).active);
+const neutralFillStrongActive = create$2("neutral-fill-strong-active").withDefault(element => neutralFillStrongRecipe.getValueFor(element).evaluate(element).active);
 /** @public */
 
-const neutralFillStrongFocus = create$1("neutral-fill-strong-focus").withDefault(element => neutralFillStrongRecipe.getValueFor(element).evaluate(element).focus); // Neutral Fill Layer
+const neutralFillStrongFocus = create$2("neutral-fill-strong-focus").withDefault(element => neutralFillStrongRecipe.getValueFor(element).evaluate(element).focus); // Neutral Fill Layer
 
 /** @public */
 
-const neutralFillLayerRecipe = create$1({
+const neutralFillLayerRecipe = create$2({
   name: "neutral-fill-layer-recipe",
   cssCustomPropertyName: null
 }).withDefault({
@@ -22639,11 +23236,11 @@ const neutralFillLayerRecipe = create$1({
 });
 /** @public */
 
-const neutralFillLayerRest = create$1("neutral-fill-layer-rest").withDefault(element => neutralFillLayerRecipe.getValueFor(element).evaluate(element)); // Focus Stroke Outer
+const neutralFillLayerRest = create$2("neutral-fill-layer-rest").withDefault(element => neutralFillLayerRecipe.getValueFor(element).evaluate(element)); // Focus Stroke Outer
 
 /** @public */
 
-const focusStrokeOuterRecipe = create$1({
+const focusStrokeOuterRecipe = create$2({
   name: "focus-stroke-outer-recipe",
   cssCustomPropertyName: null
 }).withDefault({
@@ -22651,11 +23248,11 @@ const focusStrokeOuterRecipe = create$1({
 });
 /** @public */
 
-const focusStrokeOuter$1 = create$1("focus-stroke-outer").withDefault(element => focusStrokeOuterRecipe.getValueFor(element).evaluate(element)); // Focus Stroke Inner
+const focusStrokeOuter$1 = create$2("focus-stroke-outer").withDefault(element => focusStrokeOuterRecipe.getValueFor(element).evaluate(element)); // Focus Stroke Inner
 
 /** @public */
 
-const focusStrokeInnerRecipe = create$1({
+const focusStrokeInnerRecipe = create$2({
   name: "focus-stroke-inner-recipe",
   cssCustomPropertyName: null
 }).withDefault({
@@ -22663,11 +23260,11 @@ const focusStrokeInnerRecipe = create$1({
 });
 /** @public */
 
-const focusStrokeInner$1 = create$1("focus-stroke-inner").withDefault(element => focusStrokeInnerRecipe.getValueFor(element).evaluate(element)); // Neutral Foreground Hint
+const focusStrokeInner$1 = create$2("focus-stroke-inner").withDefault(element => focusStrokeInnerRecipe.getValueFor(element).evaluate(element)); // Neutral Foreground Hint
 
 /** @public */
 
-const neutralForegroundHintRecipe = create$1({
+const neutralForegroundHintRecipe = create$2({
   name: "neutral-foreground-hint-recipe",
   cssCustomPropertyName: null
 }).withDefault({
@@ -22675,11 +23272,11 @@ const neutralForegroundHintRecipe = create$1({
 });
 /** @public */
 
-const neutralForegroundHint$1 = create$1("neutral-foreground-hint").withDefault(element => neutralForegroundHintRecipe.getValueFor(element).evaluate(element)); // Neutral Foreground
+const neutralForegroundHint$1 = create$2("neutral-foreground-hint").withDefault(element => neutralForegroundHintRecipe.getValueFor(element).evaluate(element)); // Neutral Foreground
 
 /** @public */
 
-const neutralForegroundRecipe = create$1({
+const neutralForegroundRecipe = create$2({
   name: "neutral-foreground-recipe",
   cssCustomPropertyName: null
 }).withDefault({
@@ -22687,11 +23284,11 @@ const neutralForegroundRecipe = create$1({
 });
 /** @public */
 
-const neutralForegroundRest = create$1("neutral-foreground-rest").withDefault(element => neutralForegroundRecipe.getValueFor(element).evaluate(element)); // Neutral Stroke
+const neutralForegroundRest = create$2("neutral-foreground-rest").withDefault(element => neutralForegroundRecipe.getValueFor(element).evaluate(element)); // Neutral Stroke
 
 /** @public */
 
-const neutralStrokeRecipe = create$1({
+const neutralStrokeRecipe = create$2({
   name: "neutral-stroke-recipe",
   cssCustomPropertyName: null
 }).withDefault({
@@ -22701,20 +23298,20 @@ const neutralStrokeRecipe = create$1({
 });
 /** @public */
 
-const neutralStrokeRest = create$1("neutral-stroke-rest").withDefault(element => neutralStrokeRecipe.getValueFor(element).evaluate(element).rest);
+const neutralStrokeRest = create$2("neutral-stroke-rest").withDefault(element => neutralStrokeRecipe.getValueFor(element).evaluate(element).rest);
 /** @public */
 
-const neutralStrokeHover = create$1("neutral-stroke-hover").withDefault(element => neutralStrokeRecipe.getValueFor(element).evaluate(element).hover);
+const neutralStrokeHover = create$2("neutral-stroke-hover").withDefault(element => neutralStrokeRecipe.getValueFor(element).evaluate(element).hover);
 /** @public */
 
-const neutralStrokeActive = create$1("neutral-stroke-active").withDefault(element => neutralStrokeRecipe.getValueFor(element).evaluate(element).active);
+const neutralStrokeActive = create$2("neutral-stroke-active").withDefault(element => neutralStrokeRecipe.getValueFor(element).evaluate(element).active);
 /** @public */
 
-const neutralStrokeFocus = create$1("neutral-stroke-focus").withDefault(element => neutralStrokeRecipe.getValueFor(element).evaluate(element).focus); // Neutral Stroke Divider
+const neutralStrokeFocus = create$2("neutral-stroke-focus").withDefault(element => neutralStrokeRecipe.getValueFor(element).evaluate(element).focus); // Neutral Stroke Divider
 
 /** @public */
 
-const neutralStrokeDividerRecipe = create$1({
+const neutralStrokeDividerRecipe = create$2({
   name: "neutral-stroke-divider-recipe",
   cssCustomPropertyName: null
 }).withDefault({
@@ -22722,79 +23319,7 @@ const neutralStrokeDividerRecipe = create$1({
 });
 /** @public */
 
-const neutralStrokeDividerRest = create$1("neutral-stroke-divider-rest").withDefault(element => neutralStrokeDividerRecipe.getValueFor(element).evaluate(element)); // Neutral Layer Card Container
-
-/** @public */
-
-const neutralLayerCardContainerRecipe = create$1({
-  name: "neutral-layer-card-container-recipe",
-  cssCustomPropertyName: null
-}).withDefault({
-  evaluate: element => neutralLayerCardContainer(neutralPalette.getValueFor(element), baseLayerLuminance.getValueFor(element), neutralFillLayerRestDelta.getValueFor(element))
-});
-/** @public */
-
-const neutralLayerCardContainer$1 = create$1("neutral-layer-card-container").withDefault(element => neutralLayerCardContainerRecipe.getValueFor(element).evaluate(element)); // Neutral Layer Floating
-
-/** @public */
-
-const neutralLayerFloatingRecipe = create$1({
-  name: "neutral-layer-floating-recipe",
-  cssCustomPropertyName: null
-}).withDefault({
-  evaluate: element => neutralLayerFloating(neutralPalette.getValueFor(element), baseLayerLuminance.getValueFor(element), neutralFillLayerRestDelta.getValueFor(element))
-});
-/** @public */
-
-const neutralLayerFloating$1 = create$1("neutral-layer-floating").withDefault(element => neutralLayerFloatingRecipe.getValueFor(element).evaluate(element)); // Neutral Layer 1
-
-/** @public */
-
-const neutralLayer1Recipe = create$1({
-  name: "neutral-layer-1-recipe",
-  cssCustomPropertyName: null
-}).withDefault({
-  evaluate: element => neutralLayer1(neutralPalette.getValueFor(element), baseLayerLuminance.getValueFor(element))
-});
-/** @public */
-
-const neutralLayer1$1 = create$1("neutral-layer-1").withDefault(element => neutralLayer1Recipe.getValueFor(element).evaluate(element)); // Neutral Layer 2
-
-/** @public */
-
-const neutralLayer2Recipe = create$1({
-  name: "neutral-layer-2-recipe",
-  cssCustomPropertyName: null
-}).withDefault({
-  evaluate: element => neutralLayer2(neutralPalette.getValueFor(element), baseLayerLuminance.getValueFor(element), neutralFillLayerRestDelta.getValueFor(element), neutralFillRestDelta.getValueFor(element), neutralFillHoverDelta.getValueFor(element), neutralFillActiveDelta.getValueFor(element))
-});
-/** @public */
-
-const neutralLayer2$1 = create$1("neutral-layer-2").withDefault(element => neutralLayer2Recipe.getValueFor(element).evaluate(element)); // Neutral Layer 3
-
-/** @public */
-
-const neutralLayer3Recipe = create$1({
-  name: "neutral-layer-3-recipe",
-  cssCustomPropertyName: null
-}).withDefault({
-  evaluate: element => neutralLayer3(neutralPalette.getValueFor(element), baseLayerLuminance.getValueFor(element), neutralFillLayerRestDelta.getValueFor(element), neutralFillRestDelta.getValueFor(element), neutralFillHoverDelta.getValueFor(element), neutralFillActiveDelta.getValueFor(element))
-});
-/** @public */
-
-const neutralLayer3$1 = create$1("neutral-layer-3").withDefault(element => neutralLayer3Recipe.getValueFor(element).evaluate(element)); // Neutral Layer 4
-
-/** @public */
-
-const neutralLayer4Recipe = create$1({
-  name: "neutral-layer-4-recipe",
-  cssCustomPropertyName: null
-}).withDefault({
-  evaluate: element => neutralLayer4(neutralPalette.getValueFor(element), baseLayerLuminance.getValueFor(element), neutralFillLayerRestDelta.getValueFor(element), neutralFillRestDelta.getValueFor(element), neutralFillHoverDelta.getValueFor(element), neutralFillActiveDelta.getValueFor(element))
-});
-/** @public */
-
-const neutralLayer4$1 = create$1("neutral-layer-4").withDefault(element => neutralLayer4Recipe.getValueFor(element).evaluate(element));
+const neutralStrokeDividerRest = create$2("neutral-stroke-divider-rest").withDefault(element => neutralStrokeDividerRecipe.getValueFor(element).evaluate(element));
 
 const accordionStyles = (context, definition) => css`
         ${display("flex")} :host{box-sizing:border-box;flex-direction:column;font-family:${bodyFont};font-size:${typeRampMinus1FontSize};line-height:${typeRampMinus1LineHeight};color:${neutralForegroundRest};border-top:calc(${strokeWidth} * 1px) solid ${neutralStrokeDividerRest}}`;
@@ -24196,8 +24721,8 @@ const fastHorizontalScroll = HorizontalScroll$1.compose({
   baseName: "horizontal-scroll",
   template: horizontalScrollTemplate,
   styles: horizontalScrollStyles,
-  nextFlipper: html`<fast-flipper @click="${x => x.scrollToNext()}" aria-hidden="${x => x.flippersHiddenFromAT}"></fast-flipper>`,
-  previousFlipper: html`<fast-flipper @click="${x => x.scrollToPrevious()}" direction="previous" aria-hidden="${x => x.flippersHiddenFromAT}"></fast-flipper>`
+  nextFlipper: context => html`<${context.tagFor(Flipper)} @click="${x => x.scrollToNext()}" aria-hidden="${x => x.flippersHiddenFromAT}"></${context.tagFor(Flipper)}>`,
+  previousFlipper: context => html`<${context.tagFor(Flipper)} @click="${x => x.scrollToPrevious()}" direction="previous" aria-hidden="${x => x.flippersHiddenFromAT}"></${context.tagFor(Flipper)}>`
 });
 
 const optionStyles = (context, definition) => css`
@@ -24256,7 +24781,7 @@ const fastListbox = Listbox.compose({
 const listboxStyles$1 = listboxStyles;
 
 const menuItemStyles = (context, definition) => css`
-    ${display("grid")} :host{contain:layout;overflow:visible;font-family:${bodyFont};outline:none;box-sizing:border-box;height:calc(${heightNumber} * 1px);grid-template-columns:minmax(42px,auto) 1fr minmax(42px,auto);grid-template-rows:auto;justify-items:center;align-items:center;padding:0;margin:0 calc(${designUnit} * 1px);white-space:nowrap;color:${neutralForegroundRest};fill:currentcolor;cursor:pointer;font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight};border-radius:calc(${controlCornerRadius} * 1px);border:calc(${focusStrokeWidth} * 1px) solid transparent}:host(.indent-0){grid-template-columns:auto 1fr minmax(42px,auto)}:host(.indent-0) .content{grid-column:1;grid-row:1;margin-inline-start:10px}:host(.indent-0) .expand-collapse-glyph-container{grid-column:5;grid-row:1}:host(.indent-2){grid-template-columns:minmax(42px,auto) minmax(42px,auto) 1fr minmax(42px,auto) minmax(42px,auto)}:host(.indent-2) .content{grid-column:3;grid-row:1;margin-inline-start:10px}:host(.indent-2) .expand-collapse-glyph-container{grid-column:5;grid-row:1}:host(.indent-2) .start{grid-column:2}:host(.indent-2) .end{grid-column:4}:host(:${focusVisible}){border-color:${focusStrokeOuter$1};background:${neutralLayer3$1};color:${neutralForegroundRest}}:host(:hover){background:${neutralLayer3$1};color:${neutralForegroundRest}}:host([aria-checked="true"]),:host(:active),:host(.expanded){background:${neutralLayer2$1};color:${neutralForegroundRest}}:host([disabled]){cursor:${disabledCursor};opacity:${disabledOpacity}}:host([disabled]:hover){color:${neutralForegroundRest};fill:currentcolor;background:${neutralFillStealthRest}}:host([disabled]:hover) .start,:host([disabled]:hover) .end,:host([disabled]:hover)::slotted(svg){fill:${neutralForegroundRest}}.expand-collapse-glyph{width:16px;height:16px;fill:currentcolor}.content{grid-column-start:2;justify-self:start;overflow:hidden;text-overflow:ellipsis}.start,.end{display:flex;justify-content:center}::slotted(svg){width:16px;height:16px}:host(:hover) .start,:host(:hover) .end,:host(:hover)::slotted(svg),:host(:active) .start,:host(:active) .end,:host(:active)::slotted(svg){fill:${neutralForegroundRest}}:host(.indent-0[aria-haspopup="menu"]){display:grid;grid-template-columns:minmax(42px,auto) auto 1fr minmax(42px,auto) minmax(42px,auto);align-items:center;min-height:32px}:host(.indent-1[aria-haspopup="menu"]),:host(.indent-1[role="menuitemcheckbox"]),:host(.indent-1[role="menuitemradio"]){display:grid;grid-template-columns:minmax(42px,auto) auto 1fr minmax(42px,auto) minmax(42px,auto);align-items:center;min-height:32px}:host(.indent-2:not([aria-haspopup="menu"])) .end{grid-column:5}:host .input-container,:host .expand-collapse-glyph-container{display:none}:host([aria-haspopup="menu"]) .expand-collapse-glyph-container,:host([role="menuitemcheckbox"]) .input-container,:host([role="menuitemradio"]) .input-container{display:grid;margin-inline-end:10px}:host([aria-haspopup="menu"]) .content,:host([role="menuitemcheckbox"]) .content,:host([role="menuitemradio"]) .content{grid-column-start:3}:host([aria-haspopup="menu"].indent-0) .content{grid-column-start:1}:host([aria-haspopup="menu"]) .end,:host([role="menuitemcheckbox"]) .end,:host([role="menuitemradio"]) .end{grid-column-start:4}:host .expand-collapse,:host .checkbox,:host .radio{display:flex;align-items:center;justify-content:center;position:relative;width:20px;height:20px;box-sizing:border-box;outline:none;margin-inline-start:10px}:host .checkbox,:host .radio{border:calc(${strokeWidth} * 1px) solid ${neutralForegroundRest}}:host([aria-checked="true"]) .checkbox,:host([aria-checked="true"]) .radio{background:${accentFillRest};border-color:${accentFillRest}}:host .checkbox{border-radius:calc(${controlCornerRadius} * 1px)}:host .radio{border-radius:999px}:host .checkbox-indicator,:host .radio-indicator,:host .expand-collapse-indicator,::slotted([slot="checkbox-indicator"]),::slotted([slot="radio-indicator"]),::slotted([slot="expand-collapse-indicator"]){display:none}::slotted([slot="end"]:not(svg)){margin-inline-end:10px;color:${neutralForegroundHint$1}}:host([aria-checked="true"]) .checkbox-indicator,:host([aria-checked="true"]) ::slotted([slot="checkbox-indicator"]){width:100%;height:100%;display:block;fill:${neutralForegroundRest};pointer-events:none}:host([aria-checked="true"]) .radio-indicator{position:absolute;top:4px;left:4px;right:4px;bottom:4px;border-radius:999px;display:block;background:${neutralForegroundRest};pointer-events:none}:host([aria-checked="true"]) ::slotted([slot="radio-indicator"]){display:block;pointer-events:none}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+    ${display("grid")} :host{contain:layout;overflow:visible;font-family:${bodyFont};outline:none;box-sizing:border-box;height:calc(${heightNumber} * 1px);grid-template-columns:minmax(42px,auto) 1fr minmax(42px,auto);grid-template-rows:auto;justify-items:center;align-items:center;padding:0;margin:0 calc(${designUnit} * 1px);white-space:nowrap;color:${neutralForegroundRest};fill:currentcolor;cursor:pointer;font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight};border-radius:calc(${controlCornerRadius} * 1px);border:calc(${focusStrokeWidth} * 1px) solid transparent}:host(.indent-0){grid-template-columns:auto 1fr minmax(42px,auto)}:host(.indent-0) .content{grid-column:1;grid-row:1;margin-inline-start:10px}:host(.indent-0) .expand-collapse-glyph-container{grid-column:5;grid-row:1}:host(.indent-2){grid-template-columns:minmax(42px,auto) minmax(42px,auto) 1fr minmax(42px,auto) minmax(42px,auto)}:host(.indent-2) .content{grid-column:3;grid-row:1;margin-inline-start:10px}:host(.indent-2) .expand-collapse-glyph-container{grid-column:5;grid-row:1}:host(.indent-2) .start{grid-column:2}:host(.indent-2) .end{grid-column:4}:host(:${focusVisible}){border-color:${focusStrokeOuter$1};background:${neutralLayer3$1};color:${neutralForegroundRest}}:host(:hover){background:${neutralLayer3$1};color:${neutralForegroundRest}}:host([aria-checked="true"]),:host(:active),:host(.expanded){background:${neutralLayer2$1};color:${neutralForegroundRest}}:host([disabled]){cursor:${disabledCursor};opacity:${disabledOpacity}}:host([disabled]:hover){color:${neutralForegroundRest};fill:currentcolor;background:${neutralFillStealthRest}}:host([disabled]:hover) .start,:host([disabled]:hover) .end,:host([disabled]:hover)::slotted(svg){fill:${neutralForegroundRest}}.expand-collapse-glyph{width:16px;height:16px;fill:currentcolor}.content{grid-column-start:2;justify-self:start;overflow:hidden;text-overflow:ellipsis}.start,.end{display:flex;justify-content:center}::slotted(svg){width:16px;height:16px}:host(:hover) .start,:host(:hover) .end,:host(:hover)::slotted(svg),:host(:active) .start,:host(:active) .end,:host(:active)::slotted(svg){fill:${neutralForegroundRest}}:host(.indent-0[aria-haspopup="menu"]){display:grid;grid-template-columns:minmax(42px,auto) auto 1fr minmax(42px,auto) minmax(42px,auto);align-items:center;min-height:32px}:host(.indent-1[aria-haspopup="menu"]),:host(.indent-1[role="menuitemcheckbox"]),:host(.indent-1[role="menuitemradio"]){display:grid;grid-template-columns:minmax(42px,auto) auto 1fr minmax(42px,auto) minmax(42px,auto);align-items:center;min-height:32px}:host(.indent-2:not([aria-haspopup="menu"])) .end{grid-column:5}:host .input-container,:host .expand-collapse-glyph-container{display:none}:host([aria-haspopup="menu"]) .expand-collapse-glyph-container,:host([role="menuitemcheckbox"]) .input-container,:host([role="menuitemradio"]) .input-container{display:grid;margin-inline-end:10px}:host([aria-haspopup="menu"]) .content,:host([role="menuitemcheckbox"]) .content,:host([role="menuitemradio"]) .content{grid-column-start:3}:host([aria-haspopup="menu"].indent-0) .content{grid-column-start:1}:host([aria-haspopup="menu"]) .end,:host([role="menuitemcheckbox"]) .end,:host([role="menuitemradio"]) .end{grid-column-start:4}:host .expand-collapse,:host .checkbox,:host .radio{display:flex;align-items:center;justify-content:center;position:relative;width:20px;height:20px;box-sizing:border-box;outline:none;margin-inline-start:10px}:host .checkbox,:host .radio{border:calc(${strokeWidth} * 1px) solid ${neutralForegroundRest}}:host([aria-checked="true"]) .checkbox,:host([aria-checked="true"]) .radio{background:${accentFillRest};border-color:${accentFillRest}}:host .checkbox{border-radius:calc(${controlCornerRadius} * 1px)}:host .radio{border-radius:999px}:host .checkbox-indicator,:host .radio-indicator,:host .expand-collapse-indicator,::slotted([slot="checkbox-indicator"]),::slotted([slot="radio-indicator"]),::slotted([slot="expand-collapse-indicator"]){display:none}::slotted([slot="end"]:not(svg)){margin-inline-end:10px;color:${neutralForegroundHint$1}}:host([aria-checked="true"]) .checkbox-indicator,:host([aria-checked="true"]) ::slotted([slot="checkbox-indicator"]){width:100%;height:100%;display:block;fill:${foregroundOnAccentRest};pointer-events:none}:host([aria-checked="true"]) .radio-indicator{position:absolute;top:4px;left:4px;right:4px;bottom:4px;border-radius:999px;display:block;background:${foregroundOnAccentRest};pointer-events:none}:host([aria-checked="true"]) ::slotted([slot="radio-indicator"]){display:block;pointer-events:none}`.withBehaviors(forcedColorsStylesheetBehavior(css`
             :host{border-color:transparent;color:${SystemColors.ButtonText};forced-color-adjust:none}:host(:hover){background:${SystemColors.Highlight};color:${SystemColors.HighlightText}}:host(:hover) .start,:host(:hover) .end,:host(:hover)::slotted(svg),:host(:active) .start,:host(:active) .end,:host(:active)::slotted(svg){fill:${SystemColors.HighlightText}}:host(.expanded){background:${SystemColors.Highlight};border-color:${SystemColors.Highlight};color:${SystemColors.HighlightText}}:host(:${focusVisible}){background:${SystemColors.Highlight};border-color:${SystemColors.ButtonText};box-shadow:0 0 0 calc(${focusStrokeWidth} * 1px) inset ${SystemColors.HighlightText};color:${SystemColors.HighlightText};fill:currentcolor}:host([disabled]),:host([disabled]:hover),:host([disabled]:hover) .start,:host([disabled]:hover) .end,:host([disabled]:hover)::slotted(svg){background:${SystemColors.Canvas};color:${SystemColors.GrayText};fill:currentcolor;opacity:1}:host .expanded-toggle,:host .checkbox,:host .radio{border-color:${SystemColors.ButtonText};background:${SystemColors.HighlightText}}:host([checked="true"]) .checkbox,:host([checked="true"]) .radio{background:${SystemColors.HighlightText};border-color:${SystemColors.HighlightText}}:host(:hover) .expanded-toggle,:host(:hover) .checkbox,:host(:hover) .radio,:host(:${focusVisible}) .expanded-toggle,:host(:${focusVisible}) .checkbox,:host(:${focusVisible}) .radio,:host([checked="true"]:hover) .checkbox,:host([checked="true"]:hover) .radio,:host([checked="true"]:${focusVisible}) .checkbox,:host([checked="true"]:${focusVisible}) .radio{border-color:${SystemColors.HighlightText}}:host([aria-checked="true"]){background:${SystemColors.Highlight};color:${SystemColors.HighlightText}}:host([aria-checked="true"]) .checkbox-indicator,:host([aria-checked="true"]) ::slotted([slot="checkbox-indicator"]),:host([aria-checked="true"]) ::slotted([slot="radio-indicator"]){fill:${SystemColors.Highlight}}:host([aria-checked="true"]) .radio-indicator{background:${SystemColors.Highlight}}::slotted([slot="end"]:not(svg)){color:${SystemColors.ButtonText}}:host(:hover) ::slotted([slot="end"]:not(svg)),:host(:${focusVisible}) ::slotted([slot="end"]:not(svg)){color:${SystemColors.HighlightText}}`), new DirectionalStyleSheetBehavior(css`
                 .expand-collapse-glyph{transform:rotate(0deg)}`, css`
                 .expand-collapse-glyph{transform:rotate(180deg)}`));
@@ -24397,28 +24922,30 @@ const fastNumberField = NumberField$1.compose({
 });
 
 const pickerStyles = (context, definition) => css`
-        .region{z-index:1000;overflow:hidden;display:flex}.loaded{opacity:1;pointer-events:none}.loading-display,.no-options-display{background:${neutralLayerFloating$1};width:100%;min-height:calc(${heightNumber} * 1px);display:flex;flex-direction:column;align-items:center;justify-items:center;padding:calc(${designUnit} * 1px)}.loading-progress{width:42px;height:42px}.bottom{flex-direction:column}.top{flex-direction:column-reverse}`.withBehaviors(forcedColorsStylesheetBehavior(css``));
+        .region{z-index:1000;overflow:hidden;display:flex}.loaded{opacity:1;pointer-events:none}.loading-display,.no-options-display{background:${neutralLayerFloating$1};width:100%;min-height:calc(${heightNumber} * 1px);display:flex;flex-direction:column;align-items:center;justify-items:center;padding:calc(${designUnit} * 1px)}.loading-progress{width:42px;height:42px}.bottom{flex-direction:column}.top{flex-direction:column-reverse}`;
 
 const pickerMenuStyles = (context, definition) => css`
-        :host{background:${neutralLayerFloating$1};--elevation:11;z-index:1000;display:flex;width:100%;max-height:100%;min-height:58px;flex-direction:column;overflow-y:auto;overflow-x:hidden;pointer-events:auto;border-radius:calc(${controlCornerRadius} * 1px);padding:calc(${designUnit} * 1px) 0;border:calc(${strokeWidth} * 1px) solid transparent;${elevation}}.suggestions-available-alert{height:0;opacity:0;overflow:hidden}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+        :host{background:${neutralLayerFloating$1};--elevation:11;z-index:1000;display:flex;width:100%;max-height:100%;min-height:58px;box-sizing:border-box;flex-direction:column;overflow-y:auto;overflow-x:hidden;pointer-events:auto;border-radius:calc(${controlCornerRadius} * 1px);padding:calc(${designUnit} * 1px) 0;border:calc(${strokeWidth} * 1px) solid transparent;${elevation}}.suggestions-available-alert{height:0;opacity:0;overflow:hidden}`.withBehaviors(forcedColorsStylesheetBehavior(css`
                 :host{background:${SystemColors.Canvas};border-color:${SystemColors.CanvasText}}`));
 
 const pickerMenuOptionStyles = (context, definition) => css`
-:host{display:flex;align-items:center;justify-items:center;font-family:${bodyFont};border-radius:calc(${controlCornerRadius} * 1px);border:calc(${focusStrokeWidth} * 1px) solid transparent;box-sizing:border-box;color:${neutralForegroundRest};cursor:pointer;fill:currentcolor;font-size:${typeRampBaseFontSize};min-height:calc(${heightNumber} * 1px);line-height:${typeRampBaseLineHeight};margin:0 calc(${designUnit} * 1px);outline:none;overflow:hidden;padding:0 calc(${designUnit} * 2.25px);user-select:none;white-space:nowrap}:host(:${focusVisible}[role="listitem"]){border-color:${focusStrokeOuter$1};background:${neutralLayer3$1};color:${neutralForegroundRest}}:host(:hover){background:${neutralLayer3$1};color:${neutralForegroundRest}}:host([aria-selected="true"]){background:${accentFillActive};color:${foregroundOnAccentActive}}`.withBehaviors(forcedColorsStylesheetBehavior(css``));
+:host{display:flex;align-items:center;justify-items:center;font-family:${bodyFont};border-radius:calc(${controlCornerRadius} * 1px);border:calc(${focusStrokeWidth} * 1px) solid transparent;box-sizing:border-box;color:${neutralForegroundRest};cursor:pointer;fill:currentcolor;font-size:${typeRampBaseFontSize};min-height:calc(${heightNumber} * 1px);line-height:${typeRampBaseLineHeight};margin:0 calc(${designUnit} * 1px);outline:none;overflow:hidden;padding:0 calc(${designUnit} * 2.25px);user-select:none;white-space:nowrap}:host(:${focusVisible}[role="listitem"]){border-color:${focusStrokeOuter$1};background:${neutralLayer3$1};color:${neutralForegroundRest}}:host(:hover){background:${neutralLayer3$1};color:${neutralForegroundRest}}:host([aria-selected="true"]){background:${accentFillActive};color:${foregroundOnAccentActive}}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+                :host{border-color:transparent;forced-color-adjust:none;color:${SystemColors.ButtonText};fill:currentcolor}:host(:not([aria-selected="true"]):hover),:host([aria-selected="true"]){background:${SystemColors.Highlight};color:${SystemColors.HighlightText}}:host([disabled]),:host([disabled]:not([aria-selected="true"]):hover){background:${SystemColors.Canvas};color:${SystemColors.GrayText};fill:currentcolor;opacity:1}`));
 
 const pickerListStyles = (context, definition) => css`
-        .picker-list{display:flex;flex-direction:row;column-gap:calc(${designUnit} * 1px);row-gap:calc(${designUnit} * 1px);flex-wrap:wrap;z-index:1000}[role="combobox"]{min-width:260px;width:auto;box-sizing:border-box;color:${neutralForegroundRest};background:${neutralFillInputRest};border-radius:calc(${controlCornerRadius} * 1px);border:calc(${strokeWidth} * 1px) solid ${accentFillRest};height:calc(${heightNumber} * 1px);font-family:${bodyFont};outline:none;user-select:none;font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight};padding:0 calc(${designUnit} * 2px + 1px)}:active[role="combobox"]{background:${neutralFillInputHover};border-color:${accentFillActive}}::focus-within[role="combobox"]{border-color:${focusStrokeOuter$1};box-shadow:0 0 0 1px ${focusStrokeOuter$1} inset}`.withBehaviors(forcedColorsStylesheetBehavior(css`
-                :hover[role="combobox"]{background:${SystemColors.Field};border-color:${SystemColors.Highlight}}:focus-within:enabled[role="combobox"]{border-color:${SystemColors.Highlight};box-shadow:0 0 0 1px ${SystemColors.Highlight} inset}input::placeholder{color:${SystemColors.GrayText}}`));
+        .picker-list{display:flex;flex-direction:row;column-gap:calc(${designUnit} * 1px);row-gap:calc(${designUnit} * 1px);flex-wrap:wrap;z-index:1000}[role="combobox"]{min-width:260px;width:auto;box-sizing:border-box;color:${neutralForegroundRest};background:${neutralFillInputRest};border-radius:calc(${controlCornerRadius} * 1px);border:calc(${strokeWidth} * 1px) solid ${accentFillRest};height:calc(${heightNumber} * 1px);font-family:${bodyFont};outline:none;user-select:none;font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight};padding:0 calc(${designUnit} * 2px + 1px)}:active[role="combobox"]{background:${neutralFillInputHover};border-color:${accentFillActive}}:focus-within[role="combobox"]{border-color:${focusStrokeOuter$1};box-shadow:0 0 0 1px ${focusStrokeOuter$1} inset}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+                [role="combobox"]:active{background:${SystemColors.Field};border-color:${SystemColors.Highlight}}[role="combobox"]:focus-within{border-color:${SystemColors.Highlight};box-shadow:0 0 0 1px ${SystemColors.Highlight} inset}input:placeholder{color:${SystemColors.GrayText}}`));
 
 const pickerListItemStyles = (context, definition) => css`
-:host{min-width:80px;display:flex;align-items:center;justify-items:center;font-family:${bodyFont};border-radius:calc(${controlCornerRadius} * 1px);border:calc(${focusStrokeWidth} * 1px) solid transparent;box-sizing:border-box;color:${neutralForegroundRest};cursor:pointer;fill:currentcolor;font-size:${typeRampBaseFontSize};height:calc(${heightNumber} * 1px);line-height:${typeRampBaseLineHeight};margin:0 calc(${designUnit} * 1px);outline:none;overflow:hidden;padding:0 calc(${designUnit} * 2.25px);user-select:none;white-space:nowrap}:host(:${focusVisible}){border-color:${focusStrokeOuter$1};background:${neutralLayer3$1};color:${neutralForegroundRest}}:host(:hover){background:${neutralLayer3$1};color:${neutralForegroundRest}}:host([aria-selected="true"]){background:${accentFillActive};color:${foregroundOnAccentActive}}`.withBehaviors(forcedColorsStylesheetBehavior(css``));
+:host{min-width:80px;display:flex;align-items:center;justify-items:center;font-family:${bodyFont};border-radius:calc(${controlCornerRadius} * 1px);border:calc(${focusStrokeWidth} * 1px) solid transparent;box-sizing:border-box;color:${neutralForegroundRest};cursor:pointer;fill:currentcolor;font-size:${typeRampBaseFontSize};height:calc(${heightNumber} * 1px);line-height:${typeRampBaseLineHeight};margin:0 calc(${designUnit} * 1px);outline:none;overflow:hidden;padding:0 calc(${designUnit} * 2.25px);user-select:none;white-space:nowrap}:host(:${focusVisible}){border-color:${focusStrokeOuter$1};background:${neutralLayer3$1};color:${neutralForegroundRest}}:host(:hover){background:${neutralLayer3$1};color:${neutralForegroundRest}}:host([aria-selected="true"]){background:${accentFillActive};color:${foregroundOnAccentActive}}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+                :host{border-color:transparent;forced-color-adjust:none;color:${SystemColors.ButtonText};fill:currentcolor}:host(:not([aria-selected="true"]):hover),:host([aria-selected="true"]){background:${SystemColors.Highlight};color:${SystemColors.HighlightText}}:host([disabled]),:host([disabled]:not([aria-selected="true"]):hover){background:${SystemColors.Canvas};color:${SystemColors.GrayText};fill:currentcolor;opacity:1}`));
 
 /**
  * The FAST  Picker Custom Element. Implements {@link @microsoft/fast-foundation#Picker},
  * {@link @microsoft/fast-foundation#PickerTemplate}
  *
  *
- * @public
+ * @alpha
  * @remarks
  * * Generates HTML Element: \<fast-picker\>
  */
@@ -24438,10 +24965,10 @@ const fastPicker = Picker.compose({
 
 const PickerStyles = pickerStyles;
 /**
+ * Component that displays the list of available picker options
  *
  *
- *
- * @public
+ * @alpha
  * @remarks
  * HTML Element: \<fast-picker-menu\>
  */
@@ -24451,7 +24978,6 @@ const fastPickerMenu = PickerMenu.compose({
   template: pickerMenuTemplate,
   styles: pickerMenuStyles
 });
-class FASTPickerMenu extends PickerMenu {}
 /**
  * Styles for PickerMenu
  * @public
@@ -24459,10 +24985,10 @@ class FASTPickerMenu extends PickerMenu {}
 
 const PickerMenuStyles = pickerMenuStyles;
 /**
+ *  Component that displays available picker menu options
  *
  *
- *
- * @public
+ * @alpha
  * @remarks
  * HTML Element: \<fast-picker-menu-option\>
  */
@@ -24472,7 +24998,6 @@ const fastPickerMenuOption = PickerMenuOption.compose({
   template: pickerMenuOptionTemplate,
   styles: pickerMenuOptionStyles
 });
-class FASTPickerMenuOption extends PickerMenuOption {}
 /**
  * Styles for PickerMenuOption
  * @public
@@ -24480,10 +25005,10 @@ class FASTPickerMenuOption extends PickerMenuOption {}
 
 const PickerMenuOptionStyles = pickerMenuOptionStyles;
 /**
+ * Component that displays the list of selected picker items along
+ * with the input combobox
  *
- *
- *
- * @public
+ * @alpha
  * @remarks
  * HTML Element: \<fast-picker-list\>
  *
@@ -24495,7 +25020,6 @@ const fastPickerList = PickerList.compose({
   styles: pickerListStyles,
   shadowOptions: null
 });
-class FASTPickerList extends PickerList {}
 /**
  * Styles for PickerList
  * @public
@@ -24503,10 +25027,9 @@ class FASTPickerList extends PickerList {}
 
 const PickerListStyles = pickerListStyles;
 /**
+ * Component that displays selected items
  *
- *
- *
- * @public
+ * @alpha
  * @remarks
  * HTML Element: \<fast-picker-list-item\>
  */
@@ -24516,7 +25039,6 @@ const fastPickerListItem = PickerListItem.compose({
   template: pickerListItemTemplate,
   styles: pickerListItemStyles
 });
-class FASTPickerListItem extends PickerListItem {}
 /**
  * Styles for PickerListItem
  * @public
@@ -25073,7 +25595,7 @@ const fastToolbar = Toolbar$1.compose({
 const toolbarStyles$1 = toolbarStyles;
 
 const tooltipStyles = (context, definition) => css`
-        :host{contain:layout;overflow:visible;height:0;width:0}.tooltip{box-sizing:border-box;border-radius:calc(${controlCornerRadius} * 1px);border:calc(${strokeWidth} * 1px) solid ${focusStrokeOuter$1};box-shadow:0 0 0 1px ${focusStrokeOuter$1} inset;background:${neutralFillRest};color:${neutralForegroundRest};padding:4px;height:fit-content;width:fit-content;font-family:${bodyFont};font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight};white-space:nowrap;z-index:10000}${context.tagFor(AnchoredRegion)}{display:flex;justify-content:center;align-items:center;overflow:visible;flex-direction:row}${context.tagFor(AnchoredRegion)}.right,${context.tagFor(AnchoredRegion)}.left{flex-direction:column}${context.tagFor(AnchoredRegion)}.top .tooltip{margin-bottom:4px}${context.tagFor(AnchoredRegion)}.bottom .tooltip{margin-top:4px}${context.tagFor(AnchoredRegion)}.left .tooltip{margin-right:4px}${context.tagFor(AnchoredRegion)}.right .tooltip{margin-left:4px}`.withBehaviors(forcedColorsStylesheetBehavior(css`
+        :host{contain:size;overflow:visible;height:0;width:0}.tooltip{box-sizing:border-box;border-radius:calc(${controlCornerRadius} * 1px);border:calc(${strokeWidth} * 1px) solid ${focusStrokeOuter$1};box-shadow:0 0 0 1px ${focusStrokeOuter$1} inset;background:${neutralFillRest};color:${neutralForegroundRest};padding:4px;height:fit-content;width:fit-content;font-family:${bodyFont};font-size:${typeRampBaseFontSize};line-height:${typeRampBaseLineHeight};white-space:nowrap;z-index:10000}${context.tagFor(AnchoredRegion)}{display:flex;justify-content:center;align-items:center;overflow:visible;flex-direction:row}${context.tagFor(AnchoredRegion)}.right,${context.tagFor(AnchoredRegion)}.left{flex-direction:column}${context.tagFor(AnchoredRegion)}.top .tooltip{margin-bottom:4px}${context.tagFor(AnchoredRegion)}.bottom .tooltip{margin-top:4px}${context.tagFor(AnchoredRegion)}.left .tooltip{margin-right:4px}${context.tagFor(AnchoredRegion)}.right .tooltip{margin-left:4px}`.withBehaviors(forcedColorsStylesheetBehavior(css`
                 :host([disabled]){opacity:1}`));
 
 /**
@@ -25177,9 +25699,6 @@ const fastTreeView = TreeView.compose({
 const treeViewStyles$1 = treeViewStyles;
 
 /**
- * Export all custom element definitions
- */
-/**
  * All Web Components
  * @public
  * @remarks
@@ -25278,4 +25797,4 @@ function provideFASTDesignSystem(element) {
 
 const FASTDesignSystem = provideFASTDesignSystem().register(allComponents);
 
-export { Accordion, AccordionItem, Anchor$1 as Anchor, AnchoredRegion, Avatar$1 as Avatar, Badge, Breadcrumb, BreadcrumbItem, Button$1 as Button, Card$1 as Card, Checkbox, Combobox, DataGrid, DataGridCell, DataGridRow, DesignSystemProvider, Dialog, DirectionalStyleSheetBehavior, Disclosure$1 as Disclosure, Divider, FASTDesignSystem, FASTPickerList, FASTPickerListItem, FASTPickerMenu, FASTPickerMenuOption, Flipper, HorizontalScroll$1 as HorizontalScroll, Listbox, ListboxOption, Menu, MenuItem, NumberField$1 as NumberField, PaletteRGB, Picker, PickerListItemStyles, PickerListStyles, PickerMenuOptionStyles, PickerMenuStyles, PickerStyles, BaseProgress as Progress, BaseProgress as ProgressRing, Radio, RadioGroup, Select, Skeleton, Slider, SliderLabel$1 as SliderLabel, StandardLuminance, SwatchRGB, Switch, Tab, TabPanel, Tabs, TextArea$1 as TextArea, TextField$1 as TextField, Toolbar$1 as Toolbar, Tooltip, TreeItem, TreeView, accentFillActive, accentFillActiveDelta, accentFillFocus, accentFillFocusDelta, accentFillHover, accentFillHoverDelta, accentFillRecipe, accentFillRest, accentFillRestDelta, accentForegroundActive, accentForegroundActiveDelta, accentForegroundFocus, accentForegroundFocusDelta, accentForegroundHover, accentForegroundHoverDelta, accentForegroundRecipe, accentForegroundRest, accentForegroundRestDelta, accentPalette, accordionItemStyles$1 as accordionItemStyles, accordionStyles$1 as accordionStyles, allComponents, anchorStyles$1 as anchorStyles, anchoredRegionStyles$1 as anchoredRegionStyles, avatarStyles$1 as avatarStyles, badgeStyles$1 as badgeStyles, baseHeightMultiplier, baseHorizontalSpacingMultiplier, baseLayerLuminance, bodyFont, buttonStyles$1 as buttonStyles, cardStyles$1 as cardStyles, checkboxStyles$1 as checkboxStyles, comboboxStyles$1 as comboboxStyles, controlCornerRadius, dataGridCellStyles$1 as dataGridCellStyles, dataGridRowStyles$1 as dataGridRowStyles, dataGridStyles$1 as dataGridStyles, density, designSystemProviderStyles, designSystemProviderTemplate, designUnit, dialogStyles$1 as dialogStyles, direction, disabledOpacity, disclosureStyles$1 as disclosureStyles, dividerStyles$1 as dividerStyles, fastAccordion, fastAccordionItem, fastAnchor, fastAnchoredRegion, fastAvatar, fastBadge, fastBreadcrumb, fastBreadcrumbItem, fastButton, fastCard, fastCheckbox, fastCombobox, fastDataGrid, fastDataGridCell, fastDataGridRow, fastDesignSystemProvider, fastDialog, fastDisclosure, fastDivider, fastFlipper, fastHorizontalScroll, fastListbox, fastMenu, fastMenuItem, fastNumberField, fastOption, fastPicker, fastPickerList, fastPickerListItem, fastPickerMenu, fastPickerMenuOption, fastProgress, fastProgressRing, fastRadio, fastRadioGroup, fastSelect, fastSkeleton, fastSlider, fastSliderLabel, fastSwitch, fastTab, fastTabPanel, fastTabs, fastTextArea, fastTextField, fastToolbar, fastTooltip, fastTreeItem, fastTreeView, fillColor, flipperStyles$1 as flipperStyles, focusStrokeInner$1 as focusStrokeInner, focusStrokeInnerRecipe, focusStrokeOuter$1 as focusStrokeOuter, focusStrokeOuterRecipe, focusStrokeWidth, foregroundOnAccentActive, foregroundOnAccentActiveLarge, foregroundOnAccentFocus, foregroundOnAccentFocusLarge, foregroundOnAccentHover, foregroundOnAccentHoverLarge, foregroundOnAccentLargeRecipe, foregroundOnAccentRecipe, foregroundOnAccentRest, foregroundOnAccentRestLarge, imgTemplate, isDark, listboxStyles$1 as listboxStyles, menuItemStyles$1 as menuItemStyles, menuStyles$1 as menuStyles, neutralFillActive, neutralFillActiveDelta, neutralFillFocus, neutralFillFocusDelta, neutralFillHover, neutralFillHoverDelta, neutralFillInputActive, neutralFillInputActiveDelta, neutralFillInputFocus, neutralFillInputFocusDelta, neutralFillInputHover, neutralFillInputHoverDelta, neutralFillInputRecipe, neutralFillInputRest, neutralFillInputRestDelta, neutralFillLayerRecipe, neutralFillLayerRest, neutralFillLayerRestDelta, neutralFillRecipe, neutralFillRest, neutralFillRestDelta, neutralFillStealthActive, neutralFillStealthActiveDelta, neutralFillStealthFocus, neutralFillStealthFocusDelta, neutralFillStealthHover, neutralFillStealthHoverDelta, neutralFillStealthRecipe, neutralFillStealthRest, neutralFillStealthRestDelta, neutralFillStrongActive, neutralFillStrongActiveDelta, neutralFillStrongFocus, neutralFillStrongFocusDelta, neutralFillStrongHover, neutralFillStrongHoverDelta, neutralFillStrongRecipe, neutralFillStrongRest, neutralFillStrongRestDelta, neutralForegroundHint$1 as neutralForegroundHint, neutralForegroundHintRecipe, neutralForegroundRecipe, neutralForegroundRest, neutralLayer1$1 as neutralLayer1, neutralLayer1Recipe, neutralLayer2$1 as neutralLayer2, neutralLayer2Recipe, neutralLayer3$1 as neutralLayer3, neutralLayer3Recipe, neutralLayer4$1 as neutralLayer4, neutralLayer4Recipe, neutralLayerCardContainer$1 as neutralLayerCardContainer, neutralLayerCardContainerRecipe, neutralLayerFloating$1 as neutralLayerFloating, neutralLayerFloatingRecipe, neutralPalette, neutralStrokeActive, neutralStrokeActiveDelta, neutralStrokeDividerRecipe, neutralStrokeDividerRest, neutralStrokeDividerRestDelta, neutralStrokeFocus, neutralStrokeFocusDelta, neutralStrokeHover, neutralStrokeHoverDelta, neutralStrokeRecipe, neutralStrokeRest, neutralStrokeRestDelta, numberFieldStyles$1 as numberFieldStyles, optionStyles$1 as optionStyles, progressRingStyles$1 as progressRingStyles, progressStyles$1 as progressStyles, provideFASTDesignSystem, radioGroupStyles$1 as radioGroupStyles, radioStyles$1 as radioStyles, selectStyles$1 as selectStyles, skeletonStyles$1 as skeletonStyles, sliderLabelStyles$1 as sliderLabelStyles, sliderStyles$1 as sliderStyles, strokeWidth, switchStyles$1 as switchStyles, tabPanelStyles$1 as tabPanelStyles, tabStyles$1 as tabStyles, tabsStyles$1 as tabsStyles, textAreaStyles$1 as textAreaStyles, textFieldStyles$1 as textFieldStyles, toolbarStyles$1 as toolbarStyles, tooltipStyles$1 as tooltipStyles, treeItemStyles$1 as treeItemStyles, treeViewStyles$1 as treeViewStyles, typeRampBaseFontSize, typeRampBaseLineHeight, typeRampMinus1FontSize, typeRampMinus1LineHeight, typeRampMinus2FontSize, typeRampMinus2LineHeight, typeRampPlus1FontSize, typeRampPlus1LineHeight, typeRampPlus2FontSize, typeRampPlus2LineHeight, typeRampPlus3FontSize, typeRampPlus3LineHeight, typeRampPlus4FontSize, typeRampPlus4LineHeight, typeRampPlus5FontSize, typeRampPlus5LineHeight, typeRampPlus6FontSize, typeRampPlus6LineHeight };
+export { Accordion, AccordionItem, Anchor$1 as Anchor, AnchoredRegion, Avatar$1 as Avatar, Badge, Breadcrumb, BreadcrumbItem, Button$1 as Button, Card$1 as Card, Checkbox, Combobox, DataGrid, DataGridCell, DataGridRow, DesignSystemProvider, Dialog, DirectionalStyleSheetBehavior, Disclosure$1 as Disclosure, Divider, FASTDesignSystem, Flipper, HorizontalScroll$1 as HorizontalScroll, Listbox, ListboxOption, Menu, MenuItem, NumberField$1 as NumberField, PaletteRGB, Picker, PickerListItemStyles, PickerListStyles, PickerMenuOptionStyles, PickerMenuStyles, PickerStyles, BaseProgress as Progress, BaseProgress as ProgressRing, Radio, RadioGroup, Select, Skeleton, Slider, SliderLabel$1 as SliderLabel, StandardLuminance, SwatchRGB, Switch, Tab, TabPanel, Tabs, TextArea$1 as TextArea, TextField$1 as TextField, Toolbar$1 as Toolbar, Tooltip, TreeItem, TreeView, accentFillActive, accentFillActiveDelta, accentFillFocus, accentFillFocusDelta, accentFillHover, accentFillHoverDelta, accentFillRecipe, accentFillRest, accentFillRestDelta, accentForegroundActive, accentForegroundActiveDelta, accentForegroundFocus, accentForegroundFocusDelta, accentForegroundHover, accentForegroundHoverDelta, accentForegroundRecipe, accentForegroundRest, accentForegroundRestDelta, accentPalette, accordionItemStyles$1 as accordionItemStyles, accordionStyles$1 as accordionStyles, allComponents, anchorStyles$1 as anchorStyles, anchoredRegionStyles$1 as anchoredRegionStyles, avatarStyles$1 as avatarStyles, badgeStyles$1 as badgeStyles, baseHeightMultiplier, baseHorizontalSpacingMultiplier, baseLayerLuminance, bodyFont, buttonStyles$1 as buttonStyles, cardStyles$1 as cardStyles, checkboxStyles$1 as checkboxStyles, comboboxStyles$1 as comboboxStyles, controlCornerRadius, dataGridCellStyles$1 as dataGridCellStyles, dataGridRowStyles$1 as dataGridRowStyles, dataGridStyles$1 as dataGridStyles, density, designSystemProviderStyles, designSystemProviderTemplate, designUnit, dialogStyles$1 as dialogStyles, direction, disabledOpacity, disclosureStyles$1 as disclosureStyles, dividerStyles$1 as dividerStyles, fastAccordion, fastAccordionItem, fastAnchor, fastAnchoredRegion, fastAvatar, fastBadge, fastBreadcrumb, fastBreadcrumbItem, fastButton, fastCard, fastCheckbox, fastCombobox, fastDataGrid, fastDataGridCell, fastDataGridRow, fastDesignSystemProvider, fastDialog, fastDisclosure, fastDivider, fastFlipper, fastHorizontalScroll, fastListbox, fastMenu, fastMenuItem, fastNumberField, fastOption, fastPicker, fastPickerList, fastPickerListItem, fastPickerMenu, fastPickerMenuOption, fastProgress, fastProgressRing, fastRadio, fastRadioGroup, fastSelect, fastSkeleton, fastSlider, fastSliderLabel, fastSwitch, fastTab, fastTabPanel, fastTabs, fastTextArea, fastTextField, fastToolbar, fastTooltip, fastTreeItem, fastTreeView, fillColor, flipperStyles$1 as flipperStyles, focusStrokeInner$1 as focusStrokeInner, focusStrokeInnerRecipe, focusStrokeOuter$1 as focusStrokeOuter, focusStrokeOuterRecipe, focusStrokeWidth, foregroundOnAccentActive, foregroundOnAccentActiveLarge, foregroundOnAccentFocus, foregroundOnAccentFocusLarge, foregroundOnAccentHover, foregroundOnAccentHoverLarge, foregroundOnAccentLargeRecipe, foregroundOnAccentRecipe, foregroundOnAccentRest, foregroundOnAccentRestLarge, imgTemplate, isDark, listboxStyles$1 as listboxStyles, menuItemStyles$1 as menuItemStyles, menuStyles$1 as menuStyles, neutralFillActive, neutralFillActiveDelta, neutralFillFocus, neutralFillFocusDelta, neutralFillHover, neutralFillHoverDelta, neutralFillInputActive, neutralFillInputActiveDelta, neutralFillInputFocus, neutralFillInputFocusDelta, neutralFillInputHover, neutralFillInputHoverDelta, neutralFillInputRecipe, neutralFillInputRest, neutralFillInputRestDelta, neutralFillLayerRecipe, neutralFillLayerRest, neutralFillLayerRestDelta, neutralFillRecipe, neutralFillRest, neutralFillRestDelta, neutralFillStealthActive, neutralFillStealthActiveDelta, neutralFillStealthFocus, neutralFillStealthFocusDelta, neutralFillStealthHover, neutralFillStealthHoverDelta, neutralFillStealthRecipe, neutralFillStealthRest, neutralFillStealthRestDelta, neutralFillStrongActive, neutralFillStrongActiveDelta, neutralFillStrongFocus, neutralFillStrongFocusDelta, neutralFillStrongHover, neutralFillStrongHoverDelta, neutralFillStrongRecipe, neutralFillStrongRest, neutralFillStrongRestDelta, neutralForegroundHint$1 as neutralForegroundHint, neutralForegroundHintRecipe, neutralForegroundRecipe, neutralForegroundRest, neutralLayer1$1 as neutralLayer1, neutralLayer1Recipe, neutralLayer2$1 as neutralLayer2, neutralLayer2Recipe, neutralLayer3$1 as neutralLayer3, neutralLayer3Recipe, neutralLayer4$1 as neutralLayer4, neutralLayer4Recipe, neutralLayerCardContainer$1 as neutralLayerCardContainer, neutralLayerCardContainerRecipe, neutralLayerFloating$1 as neutralLayerFloating, neutralLayerFloatingRecipe, neutralPalette, neutralStrokeActive, neutralStrokeActiveDelta, neutralStrokeDividerRecipe, neutralStrokeDividerRest, neutralStrokeDividerRestDelta, neutralStrokeFocus, neutralStrokeFocusDelta, neutralStrokeHover, neutralStrokeHoverDelta, neutralStrokeRecipe, neutralStrokeRest, neutralStrokeRestDelta, numberFieldStyles$1 as numberFieldStyles, optionStyles$1 as optionStyles, progressRingStyles$1 as progressRingStyles, progressStyles$1 as progressStyles, provideFASTDesignSystem, radioGroupStyles$1 as radioGroupStyles, radioStyles$1 as radioStyles, selectStyles$1 as selectStyles, skeletonStyles$1 as skeletonStyles, sliderLabelStyles$1 as sliderLabelStyles, sliderStyles$1 as sliderStyles, strokeWidth, switchStyles$1 as switchStyles, tabPanelStyles$1 as tabPanelStyles, tabStyles$1 as tabStyles, tabsStyles$1 as tabsStyles, textAreaStyles$1 as textAreaStyles, textFieldStyles$1 as textFieldStyles, toolbarStyles$1 as toolbarStyles, tooltipStyles$1 as tooltipStyles, treeItemStyles$1 as treeItemStyles, treeViewStyles$1 as treeViewStyles, typeRampBaseFontSize, typeRampBaseLineHeight, typeRampMinus1FontSize, typeRampMinus1LineHeight, typeRampMinus2FontSize, typeRampMinus2LineHeight, typeRampPlus1FontSize, typeRampPlus1LineHeight, typeRampPlus2FontSize, typeRampPlus2LineHeight, typeRampPlus3FontSize, typeRampPlus3LineHeight, typeRampPlus4FontSize, typeRampPlus4LineHeight, typeRampPlus5FontSize, typeRampPlus5LineHeight, typeRampPlus6FontSize, typeRampPlus6LineHeight };
