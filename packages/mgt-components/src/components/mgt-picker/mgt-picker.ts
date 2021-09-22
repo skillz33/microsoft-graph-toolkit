@@ -1,8 +1,8 @@
-import { IGraph, MgtTemplatedComponent, Providers, ProviderState } from '@microsoft/mgt-element';
-import { customElement, html, property, query, state, TemplateResult } from 'lit-element';
+import { MgtTemplatedComponent, Providers, ProviderState } from '@microsoft/mgt-element';
+import { customElement, property, query, state, html } from 'lit-element';
 import { findPeople, getPeople } from '../../graph/graph.people';
 import { IDynamicPerson } from '../../graph/types';
-import { getOptionContentsTemplate, itemContentsTemplate, optionContentsTemplate } from './mgt-picker-fast-templates';
+import { itemContentsTemplate, optionContentsTemplate, pickerDropDownMenuTemplate } from './mgt-picker-fast-templates';
 import { Channel, Team } from '@microsoft/microsoft-graph-types';
 import { findChannels } from './mgt-picker.graph';
 
@@ -47,6 +47,9 @@ export class MgtPicker extends MgtTemplatedComponent {
 
   @state() private isLoading: boolean = true;
 
+  @state() public hasPeople: boolean = false;
+  @state() public hasChannels: boolean = false;
+
   createRenderRoot() {
     const root = document.createElement('div');
     this.appendChild(root);
@@ -57,7 +60,6 @@ export class MgtPicker extends MgtTemplatedComponent {
   public render() {
     return html`
       <fast-picker
-        .options=${this.people.map(p => p.id).join(',')}
         no-suggestions-text="No suggestions available"
         suggestions-available-text="Suggestions available"
         loading-text="Loading"
@@ -67,35 +69,8 @@ export class MgtPicker extends MgtTemplatedComponent {
         @querychange=${this.queryChanged}
         .showLoading=${this.isLoading}
         .menuOptionContentsTemplate=${optionContentsTemplate}
-        .listItemContentsTemplate=${itemContentsTemplate}
-      >
-      <fast-picker-menu id="custom-menu">
-
-            <fast-picker-menu-option slot="header-region">
-
-                pre-option
-
-            </fast-picker-menu-option>
-
-            <div>Group 1</div>
-
-            <fast-picker-menu-option value="option 1"></fast-picker-menu-option>
-
-            <fast-picker-menu-option value="option 2"></fast-picker-menu-option>
-
-            <div>Group 2</div>
-
-            <fast-picker-menu-option value="option 3"></fast-picker-menu-option>
-
-            <fast-picker-menu-option value="option 4"></fast-picker-menu-option>
-
-            <fast-picker-menu-option slot="footer-region">
-
-                post-option
-
-            </fast-picker-menu-option>
-
-        </fast-picker-menu>
+        .listItemContentsTemplate=${itemContentsTemplate}>
+      ${pickerDropDownMenuTemplate(this)}
     </fast-picker>
     `;
   }
@@ -133,6 +108,8 @@ export class MgtPicker extends MgtTemplatedComponent {
         this.people = this.defaultPeople;
         this.channels = this.defaultChannels;
       }
+      if (this.people.length > 0) this.hasPeople = true;
+      if (this.channels.length > 0) this.hasChannels = true;
       console.log(this.channels);
     }
 
