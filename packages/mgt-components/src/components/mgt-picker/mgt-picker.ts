@@ -60,6 +60,7 @@ export class MgtPicker extends MgtTemplatedComponent {
   public render() {
     return html`
       <fast-picker
+        options=""
         no-suggestions-text="No suggestions available"
         suggestions-available-text="Suggestions available"
         loading-text="Loading"

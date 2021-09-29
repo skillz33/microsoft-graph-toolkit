@@ -27,6 +27,8 @@ export const itemContentsTemplate: ViewTemplate = html`
   ${when(x => x.value.startsWith('channel'), channelContentTemplate)}
 `;
 
+// lit
+
 function personPickerMenuOption(id: string): TemplateResult {
   return litHtml`
     <fast-picker-menu-option value="${'person-' + id}">
