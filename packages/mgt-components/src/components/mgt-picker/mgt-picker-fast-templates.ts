@@ -14,22 +14,22 @@ export const optionContentsTemplate: ViewTemplate = html`
 `;
 
 const personContentTemplate: ViewTemplate = html`
-  <mgt-person user-id="${x => x.value}" view="oneLine"></mgt-person>
+  <mgt-person user-id="${x => x.value.substring(7)}" view="oneLine"></mgt-person>
 `;
 
 const channelContentTemplate: ViewTemplate = html`
-  <p>${x => x.value}</p>
+  <p>${x => x.value.substring(8)}</p>
 `;
 
 // TODO: find a way to display selected items
 export const itemContentsTemplate: ViewTemplate = html`
-  ${when(x => x.hasTemplate('person'), personContentTemplate)}
-  ${when(x => x.hasTemplate('channel'), channelContentTemplate)}
+  ${when(x => x.value.startsWith('person'), personContentTemplate)}
+  ${when(x => x.value.startsWith('channel'), channelContentTemplate)}
 `;
 
 function personPickerMenuOption(id: string): TemplateResult {
   return litHtml`
-    <fast-picker-menu-option>
+    <fast-picker-menu-option value="${'person-' + id}">
       <mgt-person
         user-id="${id}"
         view="twoLines"
@@ -40,7 +40,7 @@ function personPickerMenuOption(id: string): TemplateResult {
 
 function channelPickerMenuOption(channel: Team): TemplateResult {
   return litHtml`
-    <fast-picker-menu-option value="${channel.displayName}"></fast-picker-menu-option>
+    <fast-picker-menu-option value="${'channel-' + channel.displayName}"></fast-picker-menu-option>
   `;
 }
 
@@ -67,10 +67,11 @@ function channelPickerRepeatTemplate(picker: MgtPicker): TemplateResult {
 }
 
 export function pickerDropDownMenuTemplate(picker: MgtPicker): TemplateResult {
+  console.log(picker.people, picker.channels);
   return litHtml`
     <fast-picker-menu id="custom-menu">
-      ${picker.hasPeople ? peoplePickerRepeatTemplate(picker) : litHtml`<p>No people found</p>`}
-      ${picker.hasChannels ? channelPickerRepeatTemplate(picker) : litHtml`<p>No channels found</p>`}
+    ${picker.hasPeople ? peoplePickerRepeatTemplate(picker) : litHtml`<p>No people found</p>`}
+    ${picker.hasChannels ? channelPickerRepeatTemplate(picker) : litHtml`<p>No channels found</p>`}
     </fast-picker-menu>
   `;
 }

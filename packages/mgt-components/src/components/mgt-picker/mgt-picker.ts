@@ -68,7 +68,6 @@ export class MgtPicker extends MgtTemplatedComponent {
         filter-query="false"
         @querychange=${this.queryChanged}
         .showLoading=${this.isLoading}
-        .menuOptionContentsTemplate=${optionContentsTemplate}
         .listItemContentsTemplate=${itemContentsTemplate}>
       ${pickerDropDownMenuTemplate(this)}
     </fast-picker>
