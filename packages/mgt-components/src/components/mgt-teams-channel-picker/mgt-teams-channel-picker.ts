@@ -16,6 +16,7 @@ import { debounce } from '../../utils/Utils';
 import { styles } from './mgt-teams-channel-picker-css';
 import { getAllMyTeams } from './mgt-teams-channel-picker.graph';
 import { strings } from './strings';
+import { DropdownItem, getChannels } from '../../graph/graph.teams-channels';
 
 /**
  * Team with displayName
@@ -54,29 +55,6 @@ export interface SelectedChannel {
    * @memberof SelectedChannel
    */
   team: Team;
-}
-
-/**
- * Drop down menu item
- *
- * @export
- * @interface DropdownItem
- */
-interface DropdownItem {
-  /**
-   * Teams channel
-   *
-   * @type {DropdownItem[]}
-   * @memberof DropdownItem
-   */
-  channels?: DropdownItem[];
-  /**
-   * Microsoft Graph Channel or Team
-   *
-   * @type {(MicrosoftGraph.Channel | MicrosoftGraph.Team)}
-   * @memberof DropdownItem
-   */
-  item: MicrosoftGraph.Channel | Team;
 }
 
 /**
@@ -648,36 +626,7 @@ export class MgtTeamsChannelPicker extends MgtTemplatedComponent {
       if (!(await provider.getAccessTokenForScopes(...MgtTeamsChannelPicker.requiredScopes))) {
         return;
       }
-
-      teams = await getAllMyTeams(graph);
-      teams = teams.filter(t => !t.isArchived);
-
-      const batch = graph.createBatch();
-
-      for (const team of teams) {
-        batch.get(team.id, `teams/${team.id}/channels`);
-      }
-
-      const responses = await batch.executeAll();
-
-      for (const team of teams) {
-        const response = responses.get(team.id);
-
-        if (response && response.content && response.content.value) {
-          team.channels = response.content.value.map(c => {
-            return {
-              item: c
-            };
-          });
-        }
-      }
-
-      this.items = teams.map(t => {
-        return {
-          channels: t.channels as DropdownItem[],
-          item: t
-        };
-      });
+      this.items = await getChannels(graph);
     }
     this.filterList();
     this.resetFocusState();

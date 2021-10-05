@@ -1,10 +1,13 @@
 import { MgtTemplatedComponent, Providers, ProviderState } from '@microsoft/mgt-element';
 import { customElement, property, query, state, html } from 'lit-element';
+import { debounce } from '../../utils/Utils';
 import { findPeople, getPeople } from '../../graph/graph.people';
 import { IDynamicPerson } from '../../graph/types';
-import { itemContentsTemplate, optionContentsTemplate, pickerDropDownMenuTemplate } from './mgt-picker-fast-templates';
-import { Channel, Team } from '@microsoft/microsoft-graph-types';
-import { findChannels } from './mgt-picker.graph';
+import { itemContentsTemplate } from './mgt-picker-fast-templates';
+import { pickerDropDownMenuTemplate } from './mgt-picker-lit-templates';
+import { Channel } from '@microsoft/microsoft-graph-types';
+import { getChannels } from '../../graph/graph.teams-channels';
+import { MgtPeoplePicker, MgtTeamsChannelPicker } from '../components';
 
 @customElement('mgt-picker')
 export class MgtPicker extends MgtTemplatedComponent {
@@ -18,6 +21,27 @@ export class MgtPicker extends MgtTemplatedComponent {
   // protected get strings() {
   //   return strings;
   // }
+  private _debouncedSearch: { (): void; (): void };
+
+  constructor() {
+    super();
+    this.clearState();
+  }
+
+  /**
+   * array of entities to be used to search the graph
+   *
+   * @type {string[]}
+   * @memberof MgtPicker
+   */
+  @property({
+    attribute: 'entity-types',
+    converter: value => {
+      return value.split(',').map(v => v.trim());
+    },
+    type: String
+  })
+  public entityTypes: string[];
 
   /**
    * containing object of IDynamicPerson.
@@ -60,7 +84,7 @@ export class MgtPicker extends MgtTemplatedComponent {
   public render() {
     return html`
       <fast-picker
-        options=""
+        options="apples,mangoes,cheddars"
         no-suggestions-text="No suggestions available"
         suggestions-available-text="Suggestions available"
         loading-text="Loading"
@@ -87,32 +111,82 @@ export class MgtPicker extends MgtTemplatedComponent {
    */
   protected async loadState(): Promise<void> {
     const provider = Providers.globalProvider;
+    const entityHasChannels = this.entityTypes.includes('channels');
+    const entityHasPeople = this.entityTypes.includes('people');
+    const hasChannelScopes = await provider.getAccessTokenForScopes(...MgtTeamsChannelPicker.requiredScopes);
+    const hasPeopleScopes = await provider.getAccessTokenForScopes(...MgtPeoplePicker.requiredScopes);
+
     if (provider && provider.state === ProviderState.SignedIn) {
+      if (entityHasChannels && !hasChannelScopes) {
+        return;
+      }
+      if (entityHasPeople && !hasPeopleScopes) {
+        return;
+      }
+
       const input = this.picker.query;
       const graph = provider.graph.forComponent(this);
+      const hasDefaultPeople = this.defaultPeople.length > 0 && entityHasPeople;
+      const hasDefaultChannels = this.defaultChannels.length > 0 && entityHasChannels;
 
-      if (!this.defaultPeople && !this.defaultChannels) {
+      if (this.entityTypes.length > 0) {
         this.isLoading = true;
+        if (entityHasPeople && !hasDefaultPeople) this.defaultPeople = await getPeople(graph);
+        if (entityHasChannels && !hasDefaultChannels) {
+          const dropDownItems = await getChannels(graph);
+          this.defaultChannels = [];
+          dropDownItems.forEach(item => {
+            item.channels.forEach(channel => this.defaultChannels.push(channel.item as Channel));
+          });
+        }
 
-        this.defaultPeople = await getPeople(graph);
-        this.defaultChannels = await findChannels(graph);
+        if (input) {
+          if (!this._debouncedSearch) {
+            // TODO(musale): Figure out how to debounce better
+            this._debouncedSearch = debounce(async () => {
+              const loadingTimeout = setTimeout(() => {
+                this.isLoading = true;
+              }, 50);
+              if (entityHasPeople) {
+                // TODO: report bug - workaround for picker not updating when input changes
+                this.people = [];
+                this.people = await findPeople(graph, input);
+              }
+              if (entityHasChannels) {
+                this.channels = [];
+                const dropDownItems = await getChannels(graph, input);
+                dropDownItems.forEach(item => {
+                  item.channels.forEach(channel => this.channels.push(channel.item as Channel));
+                });
+              }
+              clearTimeout(loadingTimeout);
+              this.isLoading = false;
+            }, 300);
+          }
+
+          this._debouncedSearch();
+        } else {
+          this.people = this.defaultPeople;
+          this.channels = this.defaultChannels;
+        }
+        if (this.people.length > 0) this.hasPeople = true;
+        if (this.channels.length > 0) this.hasChannels = true;
       }
-
-      if (input) {
-        // TODO: report bug - workaround for picker not updating when input changes
-        this.people = [];
-        this.people = await findPeople(graph, input);
-
-        this.channels = await findChannels(graph, input);
-      } else {
-        this.people = this.defaultPeople;
-        this.channels = this.defaultChannels;
-      }
-      if (this.people.length > 0) this.hasPeople = true;
-      if (this.channels.length > 0) this.hasChannels = true;
-      console.log(this.channels);
     }
 
     this.isLoading = false;
+  }
+
+  /**
+   * Clears state of the component
+   *
+   * @protected
+   * @memberof MgtPicker
+   */
+  protected clearState(): void {
+    this.defaultChannels = [];
+    this.defaultPeople = [];
+    this.hasChannels = false;
+    this.hasPeople = false;
   }
 }
