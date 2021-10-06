@@ -22,6 +22,7 @@ import '../sub-components/mgt-flyout/mgt-flyout';
 import { MgtFlyout } from '../sub-components/mgt-flyout/mgt-flyout';
 import { PersonCardInteraction } from './../PersonCardInteraction';
 import { styles } from './mgt-person-css';
+import { thisTypeAnnotation } from '@babel/types';
 
 export { PersonCardInteraction } from '../PersonCardInteraction';
 
@@ -483,6 +484,7 @@ export class MgtPerson extends MgtTemplatedComponent {
 
   private _mouseLeaveTimeout;
   private _mouseEnterTimeout;
+  private _focusCount: number;
 
   constructor() {
     super();
@@ -496,6 +498,7 @@ export class MgtPerson extends MgtTemplatedComponent {
     this.avatarSize = 'auto';
     this._isInvalidImageSrc = false;
     this._avatarType = 'photo';
+    this._focusCount = 0;
   }
 
   /**
@@ -779,9 +782,11 @@ export class MgtPerson extends MgtTemplatedComponent {
     const presenceTemplate: TemplateResult = this.renderPresence(presence);
 
     return html`
+    <div class="avatar-box">
       <div class=${classMap(imageClasses)} title=${title} aria-label=${title}>
         ${imageTemplate} ${presenceTemplate}
       </div>
+    </div>
     `;
   }
 
@@ -1181,8 +1186,51 @@ export class MgtPerson extends MgtTemplatedComponent {
     if (e) {
       if (e.keyCode === 13) {
         this.showPersonCard();
+      } else if (e.keyCode === 39) {
+        this.nextInnerFocus();
+        this._focusCount++;
+      } else if (e.keyCode === 37) {
+        this._focusCount--;
+        this.nextInnerFocus();
+      } else if ((e.shiftKey && e.key === 'Tab') || e.key === 'Tab') {
+        if (!this.flyout || !this.flyout.isOpen) {
+          this.resetFocus();
+        }
       }
     }
+  }
+
+  private resetFocus() {
+    this.hidePersonCard();
+    let avatar = this.renderRoot.querySelector('.avatar-box') as HTMLElement;
+    let details = this.renderRoot.querySelector('.details') as HTMLElement;
+
+    avatar.tabIndex = -1;
+    details.tabIndex = -1;
+    this._focusCount = 0;
+  }
+
+  private nextInnerFocus() {
+    this.hidePersonCard();
+    let avatar = this.renderRoot.querySelector('.avatar-box') as HTMLElement;
+    let details = this.renderRoot.querySelector('.details') as HTMLElement;
+    let person = this.renderRoot.querySelector('.root') as HTMLElement;
+
+    avatar.tabIndex = 0;
+    details.tabIndex = 0;
+
+    let focusableItems: HTMLElement[] = [avatar, details, person];
+    if (this._focusCount >= focusableItems.length) {
+      this._focusCount = 0;
+    } else if (this._focusCount < 0) {
+      this._focusCount = focusableItems.length - 1;
+    }
+    if (focusableItems[this._focusCount]) {
+      console.log('focused item', focusableItems[this._focusCount]);
+      focusableItems[this._focusCount].focus();
+    }
+    console.log('focus count!', this._focusCount);
+    console.log('focusableitems', focusableItems.length);
   }
 
   public hidePersonCard() {
