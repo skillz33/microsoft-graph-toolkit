@@ -85,7 +85,6 @@ export class MgtPicker extends MgtTemplatedComponent {
   public render() {
     return html`
       <fast-picker
-        options="apples,mangoes,cheddars"
         max-selected="1"
         no-suggestions-text="No suggestions available"
         suggestions-available-text="Suggestions available"
