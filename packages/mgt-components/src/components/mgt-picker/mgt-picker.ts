@@ -8,6 +8,7 @@ import { pickerDropDownMenuTemplate } from './mgt-picker-lit-templates';
 import { Channel } from '@microsoft/microsoft-graph-types';
 import { getChannels } from '../../graph/graph.teams-channels';
 import { MgtPeoplePicker, MgtTeamsChannelPicker } from '../components';
+import { styles } from './mgt-picker-css';
 
 @customElement('mgt-picker')
 export class MgtPicker extends MgtTemplatedComponent {
@@ -15,9 +16,9 @@ export class MgtPicker extends MgtTemplatedComponent {
    * Array of styles to apply to the element. The styles should be defined
    * using the `css` tag function.
    */
-  // static get styles() {
-  //   return styles;
-  // }
+  static get styles() {
+    return styles;
+  }
   // protected get strings() {
   //   return strings;
   // }
@@ -85,6 +86,7 @@ export class MgtPicker extends MgtTemplatedComponent {
     return html`
       <fast-picker
         options="apples,mangoes,cheddars"
+        max-selected="1"
         no-suggestions-text="No suggestions available"
         suggestions-available-text="Suggestions available"
         loading-text="Loading"

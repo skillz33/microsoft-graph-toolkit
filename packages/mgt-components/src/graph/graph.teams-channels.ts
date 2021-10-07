@@ -37,8 +37,6 @@ export async function getChannels(graph: IGraph, filter: string = ''): Promise<D
       item: t
     };
   });
-  console.log('filter ', filter);
-  console.log('dropDownItem ', dropDownItem);
   return dropDownItem;
 }
 
