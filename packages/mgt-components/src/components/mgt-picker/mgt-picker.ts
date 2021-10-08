@@ -6,7 +6,7 @@ import { IDynamicPerson } from '../../graph/types';
 import { itemContentsTemplate } from './mgt-picker-fast-templates';
 import { pickerDropDownMenuTemplate } from './mgt-picker-lit-templates';
 import { Channel } from '@microsoft/microsoft-graph-types';
-import { getChannels } from '../../graph/graph.teams-channels';
+import { DropdownItem, getChannels } from '../../graph/graph.teams-channels';
 import { MgtPeoplePicker, MgtTeamsChannelPicker } from '../components';
 import { styles } from './mgt-picker-css';
 
@@ -68,7 +68,8 @@ export class MgtPicker extends MgtTemplatedComponent {
 
   @state() private defaultPeople: IDynamicPerson[];
 
-  @state() private defaultChannels: Channel[];
+  @state() private defaultTeamItems: DropdownItem[];
+  @state() public teamItems: DropdownItem[];
 
   @state() private isLoading: boolean = true;
 
@@ -127,18 +128,15 @@ export class MgtPicker extends MgtTemplatedComponent {
 
       const input = this.picker.query;
       const graph = provider.graph.forComponent(this);
+
       const hasDefaultPeople = this.defaultPeople.length > 0 && entityHasPeople;
-      const hasDefaultChannels = this.defaultChannels.length > 0 && entityHasChannels;
+      const hasDefaultTeamItems = this.defaultTeamItems.length > 0 && entityHasChannels;
 
       if (this.entityTypes.length > 0) {
         this.isLoading = true;
         if (entityHasPeople && !hasDefaultPeople) this.defaultPeople = await getPeople(graph);
-        if (entityHasChannels && !hasDefaultChannels) {
-          const dropDownItems = await getChannels(graph);
-          this.defaultChannels = [];
-          dropDownItems.forEach(item => {
-            item.channels.forEach(channel => this.defaultChannels.push(channel.item as Channel));
-          });
+        if (entityHasChannels && !hasDefaultTeamItems) {
+          this.defaultTeamItems = await getChannels(graph);
         }
 
         if (input) {
@@ -154,11 +152,8 @@ export class MgtPicker extends MgtTemplatedComponent {
                 this.people = await findPeople(graph, input);
               }
               if (entityHasChannels) {
-                this.channels = [];
-                const dropDownItems = await getChannels(graph, input);
-                dropDownItems.forEach(item => {
-                  item.channels.forEach(channel => this.channels.push(channel.item as Channel));
-                });
+                this.teamItems = [];
+                this.teamItems = await getChannels(graph, input);
               }
               clearTimeout(loadingTimeout);
               this.isLoading = false;
@@ -168,10 +163,10 @@ export class MgtPicker extends MgtTemplatedComponent {
           this._debouncedSearch();
         } else {
           this.people = this.defaultPeople;
-          this.channels = this.defaultChannels;
+          this.teamItems = this.defaultTeamItems;
         }
         if (this.people.length > 0) this.hasPeople = true;
-        if (this.channels.length > 0) this.hasChannels = true;
+        if (this.teamItems.length > 0) this.hasChannels = true;
       }
     }
 
@@ -185,7 +180,7 @@ export class MgtPicker extends MgtTemplatedComponent {
    * @memberof MgtPicker
    */
   protected clearState(): void {
-    this.defaultChannels = [];
+    this.defaultTeamItems = [];
     this.defaultPeople = [];
     this.hasChannels = false;
     this.hasPeople = false;

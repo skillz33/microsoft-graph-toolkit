@@ -1,23 +1,15 @@
-import { Person, Team } from '@microsoft/microsoft-graph-types';
+import { Person, Team, Channel } from '@microsoft/microsoft-graph-types';
 import { TemplateResult, html } from 'lit-html';
 import { repeat } from 'lit-html/directives/repeat';
 import { personMenuContentTemplate, channelMenuTemplate } from './mgt-picker-fast-templates';
 import { MgtPicker } from './mgt-picker';
+import { DropdownItem } from '../../graph/graph.teams-channels';
 
 function personPickerMenuOption(person: Person): TemplateResult {
   return html`
     <fast-picker-menu-option
         .contentsTemplate="${personMenuContentTemplate(person)}"
         value="person-${person.id}">
-    </fast-picker-menu-option>
-    `;
-}
-
-function channelPickerMenuOption(channel: Team): TemplateResult {
-  return html`
-    <fast-picker-menu-option
-        .contentsTemplate="${channelMenuTemplate}"
-        value="channel-${channel.displayName}">
     </fast-picker-menu-option>
     `;
 }
@@ -30,6 +22,25 @@ function peoplePickerRepeatTemplate(picker: MgtPicker): TemplateResult {
         x => x.id,
         val => personPickerMenuOption(val)
       )}
+    `;
+}
+
+function channelPickerOption(channel: DropdownItem, team: Team): TemplateResult {
+  return html`
+    <fast-picker-menu-option
+      .contentsTemplate="${channelMenuTemplate}"
+      value="channel-${team.displayName}- ${channel.item.displayName}">
+    </fast-picker-menu-option>
+  `;
+}
+
+function channelPickerMenuOption(item: DropdownItem): TemplateResult {
+  return html`
+    ${repeat(
+      item.channels,
+      x => x,
+      val => channelPickerOption(val, item.item)
+    )}
     `;
 }
 
@@ -51,8 +62,8 @@ function channelPickerRepeatTemplate(picker: MgtPicker): TemplateResult {
       </style>
       <div class="entity-text">Channels</div>
       ${repeat(
-        picker.channels,
-        x => x.id,
+        picker.teamItems,
+        x => x,
         val => channelPickerMenuOption(val)
       )}
     `;
