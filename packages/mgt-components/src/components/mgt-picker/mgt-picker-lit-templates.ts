@@ -24,7 +24,7 @@ function channelPickerMenuOption(channel: Team): TemplateResult {
 
 function peoplePickerRepeatTemplate(picker: MgtPicker): TemplateResult {
   return html`
-      <div>People</div>
+      <div class="entity-text">People</div>
       ${repeat(
         picker.people,
         x => x.id,
@@ -35,7 +35,21 @@ function peoplePickerRepeatTemplate(picker: MgtPicker): TemplateResult {
 
 function channelPickerRepeatTemplate(picker: MgtPicker): TemplateResult {
   return html`
-      <div>Channels</div>
+      <style>
+        .entity-text {
+          width: 39px;
+          height: 16px;
+          left: 695px;
+          top: 288px;
+
+          font-family: Segoe UI;
+          font-size: 12px;
+          line-height: 16px;
+
+          color: rgba(0, 0, 0, 0.55);
+        }
+      </style>
+      <div class="entity-text">Channels</div>
       ${repeat(
         picker.channels,
         x => x.id,

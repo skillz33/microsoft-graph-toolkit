@@ -27,8 +27,7 @@ export function personMenuContentTemplate(person: Person): ViewTemplate {
     <mgt-person
       :personDetails=${x => person}
       fetch-image
-      view="twoLines"
-      line2-property="jobTitle"></mgt-person>
+      view="oneLine"></mgt-person>
   `;
 }
 

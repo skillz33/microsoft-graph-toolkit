@@ -1,3 +1,30 @@
-.input-element {
-  background: none;
+@import '../../styles/shared-styles.scss';
+@import '../../styles/shared-sass-variables.scss';
+
+:host {
+  font-family: $font-family;
+  font-size: 14px;
+  height: 24px;
+  display: contents;
+  overflow: hidden;
+  position: absolute;
+  width: 135px;
+  left: 0px;
+  top: 0px;
+  border-radius: 12px;
+}
+
+:host .root,
+mgt-picker .root {
+  display: block;
+}
+.entity-text {
+  position: absolute;
+  width: 36px;
+  height: 16px;
+  left: 695px;
+  top: 288px;
+  font-family: $font-family;
+  font-size: 12px;
+  line-height: 16px;
 }
