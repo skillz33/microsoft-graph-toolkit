@@ -12,7 +12,7 @@ export async function getChannels(graph: IGraph, filter: string = ''): Promise<D
   for (const team of teams) {
     let resourceUrl = `teams/${team.id}/channels`;
     if (filter) {
-      resourceUrl += `?$filter=contains(displayName, '${filter}')`;
+      resourceUrl += `?$filter=startsWith(displayName, '${filter}')`;
     }
     batch.get(team.id, resourceUrl);
   }
@@ -37,6 +37,7 @@ export async function getChannels(graph: IGraph, filter: string = ''): Promise<D
       item: t
     };
   });
+  console.log(filter, dropDownItem);
   return dropDownItem;
 }
 

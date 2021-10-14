@@ -22,7 +22,8 @@ export class MgtPicker extends MgtTemplatedComponent {
   // protected get strings() {
   //   return strings;
   // }
-  private _debouncedSearch: { (): void; (): void };
+  private _debouncePeopleSearch: { (): void; (): void };
+  private _debounceChannelSearch: { (): void; (): void };
 
   constructor() {
     super();
@@ -140,9 +141,8 @@ export class MgtPicker extends MgtTemplatedComponent {
         }
 
         if (input) {
-          if (!this._debouncedSearch) {
-            // TODO(musale): Figure out how to debounce better
-            this._debouncedSearch = debounce(async () => {
+          if (!this._debouncePeopleSearch) {
+            this._debouncePeopleSearch = debounce(async () => {
               const loadingTimeout = setTimeout(() => {
                 this.isLoading = true;
               }, 50);
@@ -151,22 +151,24 @@ export class MgtPicker extends MgtTemplatedComponent {
                 this.people = [];
                 this.people = await findPeople(graph, input);
               }
+
               if (entityHasChannels) {
                 this.teamItems = [];
                 this.teamItems = await getChannels(graph, input);
               }
+
               clearTimeout(loadingTimeout);
               this.isLoading = false;
             }, 300);
           }
 
-          this._debouncedSearch();
+          this._debouncePeopleSearch();
         } else {
           this.people = this.defaultPeople;
           this.teamItems = this.defaultTeamItems;
         }
-        if (this.people.length > 0) this.hasPeople = true;
-        if (this.teamItems.length > 0) this.hasChannels = true;
+        if (this.people && this.people.length > 0) this.hasPeople = true;
+        if (this.teamItems && this.teamItems.length > 0) this.hasChannels = true;
       }
     }
 
