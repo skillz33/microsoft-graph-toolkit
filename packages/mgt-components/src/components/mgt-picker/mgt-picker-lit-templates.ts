@@ -47,6 +47,7 @@ function channelPickerMenuOption(item: DropdownItem): TemplateResult {
 function channelPickerRepeatTemplate(picker: MgtPicker): TemplateResult {
   return html`
       <div class="entity-text">Channels</div>
+      
       ${repeat(
         picker.teamItems,
         x => x,
@@ -70,9 +71,9 @@ export function pickerDropDownMenuTemplate(picker: MgtPicker): TemplateResult {
 
     fast-picker-menu-option{
       background: #FFFFFF;
-      font-family: Segoe UI;
-      font-size: 14px;
-      line-height: 20px;
+      font-family: var(--font-family,var(--default-font-family));
+      font-size: var(--font-size,14px);
+      line-height: var(--line-height,20px);
       color: rgba(0, 0, 0, 0.83);
       position: inherit;
       padding: 0px;
@@ -89,10 +90,10 @@ export function pickerDropDownMenuTemplate(picker: MgtPicker): TemplateResult {
     .entity-text {
       width: 36px;
       height: 16px;
-      font-family: Segoe UI;
+      font-family: var(--font-family,var(--default-font-family));
       padding: 9px;
-      font-size: 12px;
-      line-height: 16px;
+      font-size: var(--font-size,12px);
+      line-height: var(--line-height,16px);
       color: rgba(0, 0, 0, 0.55);
     }
 
@@ -103,6 +104,30 @@ export function pickerDropDownMenuTemplate(picker: MgtPicker): TemplateResult {
       height: 24px;
       background: rgba(0, 0, 0, 0.07);
       border-radius: 20px;
+    }
+
+    .channel{
+      display: flex;
+    }
+    .channel-image img{
+      height: 24px;
+      width: 24px;
+      display: flex;
+      overflow: hidden;
+      border: var(--avatar-border,0);
+      border-radius: var(--avatar-border-radius,50%);
+      position: relative;
+      padding: 10px 0px 10px 0px;
+    }
+    .channel-name{
+      position: inherit;
+      width: inherit;
+      padding: 12px 0px 12px 4px;
+      font-family: var(--font-family,var(--default-font-family));
+      font-weight: var(--font-weight,600);
+      font-size: var(--font-size,14px);
+      line-height: 20px;
+      color: rgba(0, 0, 0, 0.83);
     }
   </style>
       <fast-picker-menu id="custom-menu">
