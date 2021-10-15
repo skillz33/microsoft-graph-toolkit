@@ -86,12 +86,33 @@ export class MgtPicker extends MgtTemplatedComponent {
   //"2804bc07-1e1f-4938-9085-ce6d756a32d2,e8a02cc7-df4d-4778-956d-784cc9506e5a,c8913c86-ceea-4d39-b1ea-f63a5b675166"
   public render() {
     return html`
+      <style>
+        fast-picker,input {
+          position: inherit;
+          width: 368px;
+          height: 32px;
+          left: 10px;
+          top: 0px;
+
+          background: #FFFFFF;
+          border: 2px solid #BEBEBE;
+          box-sizing: border-box;
+          border-radius: 2px;
+
+          font-family: Segoe UI;
+          font-size: 14px;
+          line-height: 20px;
+          color: #2B2B2B;
+
+          flex: none;
+        }
+      </style>
       <fast-picker
         max-selected="1"
         no-suggestions-text="No suggestions available"
         suggestions-available-text="Suggestions available"
         loading-text="Loading"
-        label="Select some things"
+        label="Start typing to search people, chats, and channels"
         filter-selected="false"
         filter-query="false"
         @querychange=${this.queryChanged}

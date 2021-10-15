@@ -46,20 +46,6 @@ function channelPickerMenuOption(item: DropdownItem): TemplateResult {
 
 function channelPickerRepeatTemplate(picker: MgtPicker): TemplateResult {
   return html`
-      <style>
-        .entity-text {
-          width: 39px;
-          height: 16px;
-          left: 695px;
-          top: 288px;
-
-          font-family: Segoe UI;
-          font-size: 12px;
-          line-height: 16px;
-
-          color: rgba(0, 0, 0, 0.55);
-        }
-      </style>
       <div class="entity-text">Channels</div>
       ${repeat(
         picker.teamItems,
@@ -71,6 +57,48 @@ function channelPickerRepeatTemplate(picker: MgtPicker): TemplateResult {
 
 export function pickerDropDownMenuTemplate(picker: MgtPicker): TemplateResult {
   return html`
+  <style>
+    #custom-menu{
+      background: #FFFFFF;
+      min-height: 250px;
+      max-height: 100%;
+      color: black;
+    }
+
+    fast-picker-menu-option{
+      background: #FFFFFF;
+      font-family: Segoe UI;
+      font-size: 14px;
+      line-height: 20px;
+
+      color: rgba(0, 0, 0, 0.83);
+      position: inherit;
+      width: 368px;
+      height: 44px;
+      left: 1861px;
+      top: 1771px;
+
+      background: #FFFFFF;
+      border-radius: 0px;
+    }
+
+    fast-picker-menu-option:hover{
+      background: rgba(0, 0, 0, 0.05);
+      border-radius: 2px;
+    }
+
+    .entity-text {
+      width: 36px;
+      height: 16px;
+      margin-left: 15px;
+
+      font-family: Segoe UI;
+      font-size: 12px;
+      line-height: 16px;
+
+      color: rgba(0, 0, 0, 0.55);
+    }
+  </style>
       <fast-picker-menu id="custom-menu">
       ${picker.hasPeople ? peoplePickerRepeatTemplate(picker) : html`<p>No people found</p>`}
       ${picker.hasChannels ? channelPickerRepeatTemplate(picker) : html`<p>No channels found</p>`}
