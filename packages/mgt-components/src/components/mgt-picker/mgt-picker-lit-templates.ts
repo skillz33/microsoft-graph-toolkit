@@ -63,6 +63,9 @@ export function pickerDropDownMenuTemplate(picker: MgtPicker): TemplateResult {
       min-height: 250px;
       max-height: 100%;
       color: black;
+      padding: 12px 0px;
+      box-shadow: 0px 1.6px 3.6px rgba(0, 0, 0, 0.13), 0px 0px 2.9px rgba(0, 0, 0, 0.11);
+      border-radius: 4px;
     }
 
     fast-picker-menu-option{
@@ -70,14 +73,10 @@ export function pickerDropDownMenuTemplate(picker: MgtPicker): TemplateResult {
       font-family: Segoe UI;
       font-size: 14px;
       line-height: 20px;
-
       color: rgba(0, 0, 0, 0.83);
       position: inherit;
-      width: 368px;
+      padding: 0px;
       height: 44px;
-      left: 1861px;
-      top: 1771px;
-
       background: #FFFFFF;
       border-radius: 0px;
     }
@@ -90,13 +89,20 @@ export function pickerDropDownMenuTemplate(picker: MgtPicker): TemplateResult {
     .entity-text {
       width: 36px;
       height: 16px;
-      margin-left: 15px;
-
       font-family: Segoe UI;
+      padding: 9px;
       font-size: 12px;
       line-height: 16px;
-
       color: rgba(0, 0, 0, 0.55);
+    }
+
+    fast-picker-list-item{
+      /**TODO: Change this to the new select/deselect design */
+      color: #000000;
+      width: auto;
+      height: 24px;
+      background: rgba(0, 0, 0, 0.07);
+      border-radius: 20px;
     }
   </style>
       <fast-picker-menu id="custom-menu">

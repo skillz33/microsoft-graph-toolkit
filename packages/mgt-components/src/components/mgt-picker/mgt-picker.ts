@@ -87,7 +87,7 @@ export class MgtPicker extends MgtTemplatedComponent {
   public render() {
     return html`
       <style>
-        fast-picker,input {
+        fast-picker input {
           position: inherit;
           width: 368px;
           height: 32px;
@@ -105,6 +105,12 @@ export class MgtPicker extends MgtTemplatedComponent {
           color: #2B2B2B;
 
           flex: none;
+        }
+
+        /**TODO: find out why this is not working */
+        fast-picker input::focus{
+          border: 2px solid #605E5C;
+          box-sizing: border-box;
         }
       </style>
       <fast-picker
