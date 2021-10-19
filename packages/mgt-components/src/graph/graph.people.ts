@@ -131,13 +131,8 @@ export async function findPeople(
 
   let graphResult;
   try {
-    graphResult = await graph
-      .api('/me/people')
-      .search('"' + query + '"')
-      .top(top)
-      .filter(filter)
-      .middlewareOptions(prepScopes(scopes))
-      .get();
+    graphResult = query === '' ? graph.api('/me/people') : graph.api('/me/people').search('"' + query + '"');
+    graphResult = await graphResult.top(top).filter(filter).middlewareOptions(prepScopes(scopes)).get();
 
     if (getIsPeopleCacheEnabled() && graphResult) {
       const item = { maxResults: top, results: null };

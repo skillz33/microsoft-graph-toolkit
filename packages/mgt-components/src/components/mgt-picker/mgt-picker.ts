@@ -202,7 +202,7 @@ export class MgtPicker extends MgtTemplatedComponent {
 
         this.isLoading = true;
 
-        if (entityHasPeople && !hasDefaultPeople) this.defaultPeople = await getPeople(graph);
+        if (entityHasPeople && !hasDefaultPeople) this.defaultPeople = await findPeople(graph, '', peopleMaxResults);
         if (entityHasChannels && !hasDefaultTeamItems) {
           this.defaultTeamItems = await getChannels(graph, peopleMaxResults);
         }
