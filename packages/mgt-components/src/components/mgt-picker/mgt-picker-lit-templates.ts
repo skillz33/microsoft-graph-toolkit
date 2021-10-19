@@ -109,20 +109,21 @@ export function pickerDropDownMenuTemplate(picker: MgtPicker): TemplateResult {
     .channel{
       display: flex;
     }
-    .channel-image img{
-      height: 24px;
-      width: 24px;
-      display: flex;
-      overflow: hidden;
+    .channel-image p{
       border: var(--avatar-border,0);
       border-radius: var(--avatar-border-radius,50%);
       position: relative;
-      padding: 10px 0px 10px 0px;
+      width: 24px;
+      height: 24px;
+      background: #767676;
+      color: #FFFFFF;
+      text-align: center;
+      line-height: 24px;
     }
     .channel-name{
       position: inherit;
       width: inherit;
-      padding: 12px 0px 12px 4px;
+      padding: 15px 0px 12px 4px;
       font-family: var(--font-family,var(--default-font-family));
       font-weight: var(--font-weight,600);
       font-size: var(--font-size,14px);
