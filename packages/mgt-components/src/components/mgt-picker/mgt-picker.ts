@@ -10,6 +10,12 @@ import { DropdownItem, getChannels } from '../../graph/graph.teams-channels';
 import { MgtPeoplePicker, MgtTeamsChannelPicker } from '../components';
 import { styles } from './mgt-picker-css';
 
+/** Match an entity to it's max-result value */
+interface Entity {
+  name: string;
+  maxResults: number;
+}
+
 @customElement('mgt-picker')
 export class MgtPicker extends MgtTemplatedComponent {
   /**
@@ -45,6 +51,24 @@ export class MgtPicker extends MgtTemplatedComponent {
   public entityTypes: string[];
 
   /**
+   * Array of maximum number of values an entity can have. They are
+   * matched with the entity-types i.e. if entity-types="people,channels" and
+   * max-results="5", then people entity will have a maximum result
+   * of 5 and channels will have the default maximum result value.
+   *
+   * @type {string[]}
+   * @memberof MgtPicker
+   */
+  @property({
+    attribute: 'max-results',
+    converter: value => {
+      return value.split(',').map(v => parseInt(v.trim()));
+    },
+    type: Number
+  })
+  public maxResults: number[];
+
+  /**
    * containing object of IDynamicPerson.
    * @type {IDynamicPerson[]}
    */
@@ -64,17 +88,6 @@ export class MgtPicker extends MgtTemplatedComponent {
   })
   public channels: Channel[] = [];
 
-  /**
-   * Maximum number of results to return per entity.
-   * @type {Channel[]}
-   */
-  @property({
-    attribute: 'max-results',
-    type: Object
-  })
-  public maxResults: Channel[] = [];
-  private _defaultMaxResults: number = 10;
-
   @query('fast-picker') private picker;
 
   @state() private defaultPeople: IDynamicPerson[];
@@ -86,6 +99,8 @@ export class MgtPicker extends MgtTemplatedComponent {
 
   @state() public hasPeople: boolean = false;
   @state() public hasChannels: boolean = false;
+  @state() private _defaultMaxResults: number = 10;
+  @state() private _entityTypes: Entity[];
 
   /**
    * User input in search.
@@ -165,9 +180,6 @@ export class MgtPicker extends MgtTemplatedComponent {
     const entityHasPeople = this.entityTypes.includes('people');
     const hasChannelScopes = await provider.getAccessTokenForScopes(...MgtTeamsChannelPicker.requiredScopes);
     const hasPeopleScopes = await provider.getAccessTokenForScopes(...MgtPeoplePicker.requiredScopes);
-    const hasMaxResults = this.maxResults;
-    console.log(this.maxResults);
-    const maxValue = 10; // TODO: update this to be an attribute
 
     if (provider && provider.state === ProviderState.SignedIn) {
       if (entityHasChannels && !hasChannelScopes) {
@@ -177,9 +189,6 @@ export class MgtPicker extends MgtTemplatedComponent {
         return;
       }
 
-      if (hasMaxResults) {
-      }
-
       const input = this.userInput.toLowerCase();
       const graph = provider.graph.forComponent(this);
 
@@ -187,22 +196,27 @@ export class MgtPicker extends MgtTemplatedComponent {
       const hasDefaultTeamItems = this.defaultTeamItems.length > 0 && entityHasChannels;
 
       if (this.entityTypes.length > 0) {
+        this._matchEntityToMaxResult();
+        const teamsMaxResults = this._getMaxResultForEntity('channels');
+        const peopleMaxResults = this._getMaxResultForEntity('people');
+
         this.isLoading = true;
+
         if (entityHasPeople && !hasDefaultPeople) this.defaultPeople = await getPeople(graph);
         if (entityHasChannels && !hasDefaultTeamItems) {
-          this.defaultTeamItems = await getChannels(graph);
+          this.defaultTeamItems = await getChannels(graph, peopleMaxResults);
         }
 
         if (input) {
           if (entityHasPeople) {
             // TODO: report bug - workaround for picker not updating when input changes
             this.people = [];
-            this.people = await findPeople(graph, input);
+            this.people = await findPeople(graph, input, peopleMaxResults);
           }
 
           if (entityHasChannels) {
             this.teamItems = [];
-            this.teamItems = await getChannels(graph, maxValue, input);
+            this.teamItems = await getChannels(graph, teamsMaxResults, input);
           }
         } else {
           this.people = this.defaultPeople;
@@ -223,6 +237,23 @@ export class MgtPicker extends MgtTemplatedComponent {
     }
 
     this.isLoading = false;
+  }
+
+  /**
+   * Matches an entity name to it's max-result value
+   */
+  private _matchEntityToMaxResult() {
+    for (let i = 0; i < this.entityTypes.length; i++) {
+      const entity = this.entityTypes[i];
+      let maxResult: number = this._defaultMaxResults;
+      if (this.entityTypes.length === this.maxResults.length) {
+        maxResult = this.maxResults[i];
+      }
+      this._entityTypes.push({
+        name: entity,
+        maxResults: maxResult
+      });
+    }
   }
 
   /**
@@ -248,6 +279,7 @@ export class MgtPicker extends MgtTemplatedComponent {
     this.defaultPeople = [];
     this.hasChannels = false;
     this.hasPeople = false;
+    this._entityTypes = [];
   }
 
   /**
@@ -268,5 +300,20 @@ export class MgtPicker extends MgtTemplatedComponent {
     }
 
     this._debounceSearch();
+  }
+
+  /**
+   * Returns the maximum result number for an entity or the
+   * default return value.
+   * @param entityName the name of an entity
+   * @returns the maximum result number.
+   */
+  private _getMaxResultForEntity(entityName: string): number {
+    for (const entity of this._entityTypes) {
+      if (entity.name === entityName) {
+        return entity.maxResults;
+      }
+    }
+    return this._defaultMaxResults;
   }
 }
