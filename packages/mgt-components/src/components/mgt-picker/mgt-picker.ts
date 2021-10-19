@@ -22,8 +22,7 @@ export class MgtPicker extends MgtTemplatedComponent {
   // protected get strings() {
   //   return strings;
   // }
-  private _debouncePeopleSearch: { (): void; (): void };
-  private _debounceChannelSearch: { (): void; (): void };
+  private _debounceSearch: { (): void; (): void };
 
   constructor() {
     super();
@@ -65,6 +64,17 @@ export class MgtPicker extends MgtTemplatedComponent {
   })
   public channels: Channel[] = [];
 
+  /**
+   * Maximum number of results to return per entity.
+   * @type {Channel[]}
+   */
+  @property({
+    attribute: 'max-results',
+    type: Object
+  })
+  public maxResults: Channel[] = [];
+  private _defaultMaxResults: number = 10;
+
   @query('fast-picker') private picker;
 
   @state() private defaultPeople: IDynamicPerson[];
@@ -76,6 +86,15 @@ export class MgtPicker extends MgtTemplatedComponent {
 
   @state() public hasPeople: boolean = false;
   @state() public hasChannels: boolean = false;
+
+  /**
+   * User input in search.
+   *
+   * @protected
+   * @type {string}
+   * @memberof MgtPicker
+   */
+  protected userInput: string;
 
   createRenderRoot() {
     const root = document.createElement('div');
@@ -122,6 +141,7 @@ export class MgtPicker extends MgtTemplatedComponent {
         filter-selected="false"
         filter-query="false"
         @querychange=${this.queryChanged}
+        @keyup="${this.onUserKeyUp}"
         .showLoading=${this.isLoading}
         .listItemContentsTemplate=${itemContentsTemplate}>
       ${pickerDropDownMenuTemplate(this)}
@@ -145,6 +165,9 @@ export class MgtPicker extends MgtTemplatedComponent {
     const entityHasPeople = this.entityTypes.includes('people');
     const hasChannelScopes = await provider.getAccessTokenForScopes(...MgtTeamsChannelPicker.requiredScopes);
     const hasPeopleScopes = await provider.getAccessTokenForScopes(...MgtPeoplePicker.requiredScopes);
+    const hasMaxResults = this.maxResults;
+    console.log(this.maxResults);
+    const maxValue = 10; // TODO: update this to be an attribute
 
     if (provider && provider.state === ProviderState.SignedIn) {
       if (entityHasChannels && !hasChannelScopes) {
@@ -154,7 +177,10 @@ export class MgtPicker extends MgtTemplatedComponent {
         return;
       }
 
-      const input = this.picker.query;
+      if (hasMaxResults) {
+      }
+
+      const input = this.userInput.toLowerCase();
       const graph = provider.graph.forComponent(this);
 
       const hasDefaultPeople = this.defaultPeople.length > 0 && entityHasPeople;
@@ -168,38 +194,46 @@ export class MgtPicker extends MgtTemplatedComponent {
         }
 
         if (input) {
-          if (!this._debouncePeopleSearch) {
-            this._debouncePeopleSearch = debounce(async () => {
-              const loadingTimeout = setTimeout(() => {
-                this.isLoading = true;
-              }, 50);
-              if (entityHasPeople) {
-                // TODO: report bug - workaround for picker not updating when input changes
-                this.people = [];
-                this.people = await findPeople(graph, input);
-              }
-
-              if (entityHasChannels) {
-                this.teamItems = [];
-                this.teamItems = await getChannels(graph, input);
-              }
-
-              clearTimeout(loadingTimeout);
-              this.isLoading = false;
-            }, 300);
+          if (entityHasPeople) {
+            // TODO: report bug - workaround for picker not updating when input changes
+            this.people = [];
+            this.people = await findPeople(graph, input);
           }
 
-          this._debouncePeopleSearch();
+          if (entityHasChannels) {
+            this.teamItems = [];
+            this.teamItems = await getChannels(graph, maxValue, input);
+          }
         } else {
           this.people = this.defaultPeople;
           this.teamItems = this.defaultTeamItems;
         }
-        if (this.people && this.people.length > 0) this.hasPeople = true;
-        if (this.teamItems && this.teamItems.length > 0) this.hasChannels = true;
+
+        if (this.people && this.people.length > 0) {
+          this.hasPeople = true;
+        } else {
+          this.hasPeople = false;
+        }
+        if (this.teamItems && this.teamItems.length > 0) {
+          this.hasChannels = true;
+        } else {
+          this.hasChannels = false;
+        }
       }
     }
 
     this.isLoading = false;
+  }
+
+  /**
+   * Perform the search after a Key Up event is fired.
+   *
+   * @param event KeyBoard typing event fired after pressing a key.
+   */
+  private onUserKeyUp(event: KeyboardEvent): void {
+    const input = event.target as HTMLInputElement;
+    this.userInput = input.value;
+    this.handleEntitySearch();
   }
 
   /**
@@ -209,9 +243,30 @@ export class MgtPicker extends MgtTemplatedComponent {
    * @memberof MgtPicker
    */
   protected clearState(): void {
+    this.userInput = '';
     this.defaultTeamItems = [];
     this.defaultPeople = [];
     this.hasChannels = false;
     this.hasPeople = false;
+  }
+
+  /**
+   * Use debounce to perform a search after a delay.
+   */
+  private handleEntitySearch() {
+    if (!this._debounceSearch) {
+      this._debounceSearch = debounce(async () => {
+        const loadingTimeout = setTimeout(() => {
+          this.isLoading = true;
+        }, 50);
+
+        await this.loadState();
+
+        clearTimeout(loadingTimeout);
+        this.isLoading = false;
+      }, 400);
+    }
+
+    this._debounceSearch();
   }
 }

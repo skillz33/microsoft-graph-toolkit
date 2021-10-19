@@ -97,6 +97,13 @@ export interface CacheConfig {
    * @memberof CacheConfig
    */
   fileLists: CacheOptions;
+  /**
+   * Cache options for teams store
+   *
+   * @type {CacheOptions}
+   * @memberof CacheConfig
+   */
+  teams: CacheOptions;
 }
 
 /**
@@ -212,6 +219,10 @@ export class CacheService {
       isEnabled: true
     },
     fileLists: {
+      invalidationPeriod: null,
+      isEnabled: true
+    },
+    teams: {
       invalidationPeriod: null,
       isEnabled: true
     }

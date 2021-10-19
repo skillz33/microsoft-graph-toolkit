@@ -75,5 +75,13 @@ export const schemas = {
       insightfileLists: 'insightfileLists'
     },
     version: 1
+  },
+  teams: {
+    name: 'teams',
+    stores: {
+      teamsItems: 'teamsItems',
+      teamsQuery: 'teamsQuery'
+    },
+    version: 1
   }
 };
