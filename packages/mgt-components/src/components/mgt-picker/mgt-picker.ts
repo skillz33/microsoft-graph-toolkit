@@ -209,13 +209,10 @@ export class MgtPicker extends MgtTemplatedComponent {
 
         if (input) {
           if (entityHasPeople) {
-            // TODO: report bug - workaround for picker not updating when input changes
-            this.people = [];
             this.people = await findPeople(graph, input, peopleMaxResults);
           }
 
           if (entityHasChannels) {
-            this.teamItems = [];
             this.teamItems = await getChannels(graph, teamsMaxResults, input);
           }
         } else {
