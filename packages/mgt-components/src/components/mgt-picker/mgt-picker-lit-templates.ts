@@ -130,10 +130,35 @@ export function pickerDropDownMenuTemplate(picker: MgtPicker): TemplateResult {
       line-height: 20px;
       color: rgba(0, 0, 0, 0.83);
     }
+    .not-found-text{
+      padding: 9px 0px 9px 13px;
+      width: 145px;
+      height: 16px;
+      left: 1390px;
+      top: 253px;
+
+      font-family: Segoe UI;
+      font-size: 12px;
+      line-height: 16px;
+      /* identical to box height, or 133% */
+
+
+      /* Foreground/neutralForegroundHint */
+
+      color: rgba(0, 0, 0, 0.55);
+    }
   </style>
       <fast-picker-menu id="custom-menu">
-      ${picker.hasPeople ? peoplePickerRepeatTemplate(picker) : html`<p>No people found</p>`}
-      ${picker.hasChannels ? channelPickerRepeatTemplate(picker) : html`<p>No channels found</p>`}
+      ${
+        picker.hasPeople
+          ? peoplePickerRepeatTemplate(picker)
+          : html`<div class="entity-text">People</div><p class="not-found-text">No people found</p>`
+      }
+      ${
+        picker.hasChannels
+          ? channelPickerRepeatTemplate(picker)
+          : html`<div class="entity-text">Channels</div><p class="not-found-text">No channels found</p>`
+      }
       </fast-picker-menu>
     `;
 }

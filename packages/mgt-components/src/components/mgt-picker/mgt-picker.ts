@@ -225,7 +225,7 @@ export class MgtPicker extends MgtTemplatedComponent {
         } else {
           this.hasPeople = false;
         }
-        if (this.teamItems && this.teamItems.length > 0) {
+        if (this.teamItems && this.teamItems.length > 0 && this.checkChannelsExistInTeamItems(this.teamItems)) {
           this.hasChannels = true;
         } else {
           this.hasChannels = false;
@@ -312,5 +312,21 @@ export class MgtPicker extends MgtTemplatedComponent {
       }
     }
     return this._defaultMaxResults;
+  }
+
+  /**
+   * Checks whether an array of team items have channels within it. The
+   * graph returns the teams but the during a search, the channels are
+   * checked and may return empty channel arrays.
+   *
+   * @param teamItems an array of team items with channels.
+   * @returns
+   */
+  private checkChannelsExistInTeamItems(teamItems: DropdownItem[]): boolean {
+    for (const team of teamItems) {
+      const channels = team.channels;
+      if (channels.length > 0) return true;
+    }
+    return false;
   }
 }

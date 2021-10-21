@@ -74,7 +74,7 @@ export async function getChannels(graph: IGraph, top: number = 10, filter: strin
       item: t
     };
   });
-  console.log(dropDownItem);
+
   if (getIsTeamsCacheEnabled() && dropDownItem) {
     const item = { maxResults: top, results: null };
     item.results = dropDownItem.map(teamItem => JSON.stringify(teamItem));
