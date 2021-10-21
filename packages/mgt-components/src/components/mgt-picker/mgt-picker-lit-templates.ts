@@ -134,17 +134,9 @@ export function pickerDropDownMenuTemplate(picker: MgtPicker): TemplateResult {
       padding: 9px 0px 9px 13px;
       width: 145px;
       height: 16px;
-      left: 1390px;
-      top: 253px;
-
       font-family: Segoe UI;
       font-size: 12px;
       line-height: 16px;
-      /* identical to box height, or 133% */
-
-
-      /* Foreground/neutralForegroundHint */
-
       color: rgba(0, 0, 0, 0.55);
     }
   </style>

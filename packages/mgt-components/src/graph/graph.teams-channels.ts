@@ -37,7 +37,8 @@ export async function getChannels(graph: IGraph, top: number = 10, filter: strin
     teamItemsCache = CacheService.getCache<CacheTeamItems>(schemas.teams, store);
     const result: CacheTeamItems = getIsTeamsCacheEnabled() ? await teamItemsCache.getValue(cacheKey) : null;
     if (result && getTeamItemsInvalidationTime() > Date.now() - result.timeCached) {
-      return result.results.map(teamItem => JSON.parse(teamItem));
+      const teamItems = result.results.map(teamItem => JSON.parse(teamItem));
+      return getTopTeamItems(teamItems, top);
     }
   }
 
@@ -74,13 +75,14 @@ export async function getChannels(graph: IGraph, top: number = 10, filter: strin
       item: t
     };
   });
+  const topDropdownItems = getTopTeamItems(dropDownItem, top);
 
-  if (getIsTeamsCacheEnabled() && dropDownItem) {
+  if (getIsTeamsCacheEnabled() && topDropdownItems) {
     const item = { maxResults: top, results: null };
-    item.results = dropDownItem.map(teamItem => JSON.stringify(teamItem));
+    item.results = topDropdownItems.map(teamItem => JSON.stringify(teamItem));
     teamItemsCache.putValue(cacheKey, item);
   }
-  return dropDownItem;
+  return topDropdownItems;
 }
 
 /**
@@ -104,4 +106,21 @@ export interface DropdownItem {
    * @memberof DropdownItem
    */
   item: Channel | Team;
+}
+
+/**
+ * Manual filter for top x teams and channels in the teams.
+ *
+ * @param teamItems team items
+ * @param top the max result you want
+ * @returns DropdownItem array
+ */
+function getTopTeamItems(teamItems: DropdownItem[], top: number): DropdownItem[] {
+  const topTeams = teamItems.slice(0, top).map(teamItem => {
+    return {
+      channels: teamItem.channels.slice(0, top) as DropdownItem[],
+      item: teamItem.item
+    };
+  });
+  return topTeams;
 }
