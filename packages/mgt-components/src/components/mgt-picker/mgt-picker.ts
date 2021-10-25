@@ -242,13 +242,10 @@ export class MgtPicker extends MgtTemplatedComponent {
   private _matchEntityToMaxResult() {
     for (let i = 0; i < this.entityTypes.length; i++) {
       const entity = this.entityTypes[i];
-      let maxResult: number = this._defaultMaxResults;
-      if (this.entityTypes.length === this.maxResults.length) {
-        maxResult = this.maxResults[i];
-      }
+      const maxResults = this.maxResults[i] ? this.maxResults[i] : this._defaultMaxResults;
       this._entityTypes.push({
         name: entity,
-        maxResults: maxResult
+        maxResults: maxResults
       });
     }
   }
