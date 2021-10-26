@@ -1,10 +1,10 @@
 import { MgtTemplatedComponent, Providers, ProviderState } from '@microsoft/mgt-element';
-import { customElement, property, query, state, html } from 'lit-element';
+import { customElement, property, query, state, html, TemplateResult } from 'lit-element';
 import { debounce } from '../../utils/Utils';
 import { findPeople, getPeople } from '../../graph/graph.people';
 import { IDynamicPerson } from '../../graph/types';
-import { itemContentsTemplate } from './mgt-picker-fast-templates';
-import { pickerDropDownMenuTemplate } from './mgt-picker-lit-templates';
+import { itemContentsTemplate, personMenuContentTemplate } from './mgt-picker-fast-templates';
+import { pickerDropDownMenuTemplate, renderEntityBox, renderFastPickerInput } from './mgt-picker-lit-templates';
 import { Channel } from '@microsoft/microsoft-graph-types';
 import { DropdownItem, getChannels } from '../../graph/graph.teams-channels';
 import { MgtPeoplePicker, MgtTeamsChannelPicker } from '../components';
@@ -88,19 +88,21 @@ export class MgtPicker extends MgtTemplatedComponent {
   })
   public channels: Channel[] = [];
 
-  @query('fast-picker') private picker;
+  @query('fast-picker') public picker;
 
   @state() private defaultPeople: IDynamicPerson[];
 
   @state() private defaultTeamItems: DropdownItem[];
   @state() public teamItems: DropdownItem[];
 
-  @state() private isLoading: boolean = true;
+  @state() public isLoading: boolean = true;
 
   @state() public hasPeople: boolean = false;
   @state() public hasChannels: boolean = false;
   @state() private _defaultMaxResults: number = 10;
   @state() private _entityTypes: Entity[];
+  @state() public _selectedChannels: DropdownItem[];
+  @state() public _selectedPeople: IDynamicPerson[];
 
   /**
    * User input in search.
@@ -118,53 +120,11 @@ export class MgtPicker extends MgtTemplatedComponent {
   }
 
   //"2804bc07-1e1f-4938-9085-ce6d756a32d2,e8a02cc7-df4d-4778-956d-784cc9506e5a,c8913c86-ceea-4d39-b1ea-f63a5b675166"
-  public render() {
-    return html`
-      <style>
-        fast-picker input {
-          position: inherit;
-          width: 368px;
-          height: 32px;
-          left: 10px;
-          top: 0px;
-
-          background: #FFFFFF;
-          border: 2px solid #BEBEBE;
-          box-sizing: border-box;
-          border-radius: 2px;
-
-          font-family: Segoe UI;
-          font-size: 14px;
-          line-height: 20px;
-          color: #2B2B2B;
-
-          flex: none;
-        }
-
-        /**TODO: find out why this is not working */
-        fast-picker input::focus{
-          border: 2px solid #605E5C;
-          box-sizing: border-box;
-        }
-      </style>
-      <fast-picker
-        max-selected="1"
-        no-suggestions-text="No suggestions available"
-        suggestions-available-text="Suggestions available"
-        loading-text="Loading"
-        label="Start typing to search people, chats, and channels"
-        filter-selected="false"
-        filter-query="false"
-        @querychange=${this.queryChanged}
-        @keyup="${this.onUserKeyUp}"
-        .showLoading=${this.isLoading}
-        .listItemContentsTemplate=${itemContentsTemplate}>
-      ${pickerDropDownMenuTemplate(this)}
-    </fast-picker>
-    `;
+  public render(): TemplateResult {
+    return renderEntityBox(this);
   }
 
-  private queryChanged(e) {
+  public queryChanged(e) {
     this.isLoading = true;
 
     this.requestStateUpdate();
@@ -255,7 +215,7 @@ export class MgtPicker extends MgtTemplatedComponent {
    *
    * @param event KeyBoard typing event fired after pressing a key.
    */
-  private onUserKeyUp(event: KeyboardEvent): void {
+  public onUserKeyUp(event: KeyboardEvent): void {
     const input = event.target as HTMLInputElement;
     this.userInput = input.value;
     this.handleEntitySearch();
@@ -274,6 +234,12 @@ export class MgtPicker extends MgtTemplatedComponent {
     this.hasChannels = false;
     this.hasPeople = false;
     this._entityTypes = [];
+    this._selectedPeople = [
+      { id: '2804bc07-1e1f-4938-9085-ce6d756a32d2' },
+      { id: 'e8a02cc7-df4d-4778-956d-784cc9506e5a' },
+      { id: 'c8913c86-ceea-4d39-b1ea-f63a5b675166' }
+    ];
+    this._selectedChannels = [];
   }
 
   /**
@@ -325,5 +291,18 @@ export class MgtPicker extends MgtTemplatedComponent {
       if (channels.length > 0) return true;
     }
     return false;
+  }
+
+  public handlePickerMenuClick(event: Event, entityType: string) {
+    event.preventDefault();
+    this.clearInput();
+    // const pickerMenuHtml = event.target as HTMLElement;
+    // console.log(pickerMenuHtml);
+    // this.picker.query = personMenuContentTemplate({ id: '2804bc07-1e1f-4938-9085-ce6d756a32d2' });
+  }
+
+  private clearInput() {
+    this.picker.query = '';
+    this.userInput = '';
   }
 }
