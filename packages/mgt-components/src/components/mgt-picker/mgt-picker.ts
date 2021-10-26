@@ -16,6 +16,9 @@ interface Entity {
   maxResults: number;
 }
 
+/** Any of the selected entities */
+type SelectedEntity = IDynamicPerson | DropdownItem;
+
 @customElement('mgt-picker')
 export class MgtPicker extends MgtTemplatedComponent {
   /**
@@ -234,11 +237,12 @@ export class MgtPicker extends MgtTemplatedComponent {
     this.hasChannels = false;
     this.hasPeople = false;
     this._entityTypes = [];
-    this._selectedPeople = [
-      { id: '2804bc07-1e1f-4938-9085-ce6d756a32d2' },
-      { id: 'e8a02cc7-df4d-4778-956d-784cc9506e5a' },
-      { id: 'c8913c86-ceea-4d39-b1ea-f63a5b675166' }
-    ];
+    // this._selectedPeople = [
+    //   { id: '2804bc07-1e1f-4938-9085-ce6d756a32d2' },
+    //   { id: 'e8a02cc7-df4d-4778-956d-784cc9506e5a' },
+    //   { id: 'c8913c86-ceea-4d39-b1ea-f63a5b675166' }
+    // ];
+    this._selectedPeople = [];
     this._selectedChannels = [];
   }
 
@@ -293,16 +297,33 @@ export class MgtPicker extends MgtTemplatedComponent {
     return false;
   }
 
-  public handlePickerMenuClick(event: Event, entityType: string) {
+  public handlePickerMenuClick(event: Event, entityType: string, value: SelectedEntity) {
     event.preventDefault();
     this.clearInput();
-    // const pickerMenuHtml = event.target as HTMLElement;
-    // console.log(pickerMenuHtml);
-    // this.picker.query = personMenuContentTemplate({ id: '2804bc07-1e1f-4938-9085-ce6d756a32d2' });
+
+    if (entityType === 'people') {
+      if (this.allowSingleSelect()) {
+        this._selectedPeople = [value as IDynamicPerson];
+      } else {
+        this._selectedPeople = [...this._selectedPeople, value as IDynamicPerson];
+      }
+    }
+    this.isLoading = false;
+    console.log(this.picker.maxSelected);
+    console.log(this._selectedPeople);
   }
 
   private clearInput() {
     this.picker.query = '';
     this.userInput = '';
+  }
+
+  /**
+   * Checks if single selection of an entity is allowed or multiple
+   * @returns true max-selected = '1' otherwise it is multiselect mode.
+   */
+  private allowSingleSelect(): boolean {
+    if (this.picker.maxSelected === '1') return true;
+    return false;
   }
 }

@@ -11,7 +11,7 @@ function personPickerMenuOption(person: Person, picker: MgtPicker): TemplateResu
     <fast-picker-menu-option
         .contentsTemplate="${personMenuContentTemplate(person)}"
         value="person-${person.id}"
-        @click=${event => picker.handlePickerMenuClick(event, 'people')}>
+        @click=${event => picker.handlePickerMenuClick(event, 'people', person)}>
     </fast-picker-menu-option>
     `;
 }
@@ -32,7 +32,7 @@ function channelPickerOption(channel: DropdownItem, team: Team, picker: MgtPicke
     <fast-picker-menu-option
       .contentsTemplate="${channelMenuTemplate}"
       value="channel-${team.displayName}- ${channel.item.displayName}"
-      @click=${event => picker.handlePickerMenuClick(event, 'channels')}>
+      @click=${event => picker.handlePickerMenuClick(event, 'channels', channel)}>
     </fast-picker-menu-option>
   `;
 }
