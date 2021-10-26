@@ -17,7 +17,7 @@ interface Entity {
 }
 
 /** Any of the selected entities */
-type SelectedEntity = IDynamicPerson | DropdownItem;
+export type SelectedEntity = IDynamicPerson | DropdownItem;
 
 @customElement('mgt-picker')
 export class MgtPicker extends MgtTemplatedComponent {
@@ -237,11 +237,6 @@ export class MgtPicker extends MgtTemplatedComponent {
     this.hasChannels = false;
     this.hasPeople = false;
     this._entityTypes = [];
-    // this._selectedPeople = [
-    //   { id: '2804bc07-1e1f-4938-9085-ce6d756a32d2' },
-    //   { id: 'e8a02cc7-df4d-4778-956d-784cc9506e5a' },
-    //   { id: 'c8913c86-ceea-4d39-b1ea-f63a5b675166' }
-    // ];
     this._selectedPeople = [];
     this._selectedChannels = [];
   }
@@ -298,19 +293,30 @@ export class MgtPicker extends MgtTemplatedComponent {
   }
 
   public handlePickerMenuClick(event: Event, entityType: string, value: SelectedEntity) {
-    event.preventDefault();
-    this.clearInput();
+    // event.preventDefault();
+    // this.clearInput();
 
-    if (entityType === 'people') {
-      if (this.allowSingleSelect()) {
-        this._selectedPeople = [value as IDynamicPerson];
-      } else {
-        this._selectedPeople = [...this._selectedPeople, value as IDynamicPerson];
-      }
+    switch (entityType) {
+      case 'people':
+        if (this.allowSingleSelect()) {
+          this._selectedChannels = [];
+          this._selectedPeople = [value as IDynamicPerson];
+        } else {
+          this._selectedPeople = [...this._selectedPeople, value as IDynamicPerson];
+        }
+        break;
+      case 'channel':
+        if (this.allowSingleSelect()) {
+          this._selectedPeople = [];
+          this._selectedChannels = [value as DropdownItem];
+        } else {
+          this._selectedChannels = [...this._selectedChannels, value as DropdownItem];
+        }
+      default:
+        this._selectedPeople = [];
+        this._selectedChannels = [];
+        break;
     }
-    this.isLoading = false;
-    console.log(this.picker.maxSelected);
-    console.log(this._selectedPeople);
   }
 
   private clearInput() {
