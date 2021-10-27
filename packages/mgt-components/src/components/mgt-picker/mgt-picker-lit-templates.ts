@@ -65,10 +65,15 @@ export function pickerDropDownMenuTemplate(picker: MgtPicker): TemplateResult {
       background: #FFFFFF;
       min-height: 250px;
       max-height: 100%;
+      width: inherit;
       color: black;
-      padding: 12px 0px;
-      box-shadow: 0px 1.6px 3.6px rgba(0, 0, 0, 0.13), 0px 0px 2.9px rgba(0, 0, 0, 0.11);
-      border-radius: 4px;
+      padding: 0px;
+      box-shadow: 0px 1.6px 3.6px rgba(0, 0, 0, 0.13), 0px 1.6px 3.6px rgba(0, 0, 0, 0.13);
+      border-radius: 0px 0px 4px 4px;
+      margin-top: 7px;
+    }
+    fast-picker {
+      width: 368px;
     }
 
     fast-picker-menu-option{
@@ -102,10 +107,12 @@ export function pickerDropDownMenuTemplate(picker: MgtPicker): TemplateResult {
     fast-picker-list-item{
       color: #000000;
       width: auto;
+      min-width: 32px;
       height: 24px;
       background: rgba(0, 0, 0, 0.07);
       border-radius: 20px;
-      margin: 3px;
+      border: none;
+      padding: 0px;
     }
 
     .channel{
@@ -162,9 +169,9 @@ export function renderFastPickerInput(picker: MgtPicker): TemplateResult {
     <style>
       fast-picker input {
         position: inherit;
-        width: 368px;
-        height: 32px;
-        left: 10px;
+        width: 348px;
+        height: 20px;
+        left: 0px;
         top: 0px;
         background: #FFFFFF;
         border: none;
@@ -172,8 +179,17 @@ export function renderFastPickerInput(picker: MgtPicker): TemplateResult {
         font-size: 14px;
         line-height: 20px;
         color: #2B2B2B;
+        padding: 0px 0px 0px 1px;
+        margin-top: 2px;
+      }
 
-        flex: none;
+      fast-picker-list {
+        width: inherit;
+        position: static;
+        width: 352px;
+        height: 24px;
+        left: calc(50% - 352px/2);
+        top: 6px;
       }
 
       /**TODO: find out why this is not working */
@@ -206,15 +222,14 @@ export function renderEntityBox(picker: MgtPicker): TemplateResult {
       .entity-box {
         position: inherit;
         width: 368px;
-        left: 10px;
-        top: 0px;
-        background-color: var(--input-background-color,#fff);
-        border-top: var(--input-border-top,var(--input-border,2px solid #605e5c));
-        border-right: var(--input-border-right,var(--input-border,2px solid #605e5c));
-        border-bottom: var(--input-border-bottom,var(--input-border,2px solid #605e5c));
-        border-left: var(--input-border-left,var(--input-border,2px solid #605e5c));
-        padding: 0px;
-        flex: display
+        background: #FFFFFF;
+        border: 2px solid #605E5C;
+        box-sizing: border-box;
+        border-radius: 2px;
+        padding: 2px 4px 2px 4px;
+        flex: display;
+        flex-direction: row;
+        align-items: flex-start;
       }
     </style>
     <div class="entity-box">
