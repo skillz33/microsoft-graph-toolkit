@@ -221,7 +221,19 @@ export class MgtPicker extends MgtTemplatedComponent {
   public onUserKeyUp(event: KeyboardEvent): void {
     const input = event.target as HTMLInputElement;
     this.userInput = input.value;
-    this.handleEntitySearch();
+    const keyCode = event.key;
+    console.log(keyCode);
+    switch (keyCode) {
+      case 'Delete':
+        // TODO: Update removing the selected item from the DOM.
+        this._selectedChannels = [];
+        this._selectedPeople = [];
+        break;
+
+      default:
+        this.handleEntitySearch();
+        break;
+    }
   }
 
   /**
@@ -317,6 +329,10 @@ export class MgtPicker extends MgtTemplatedComponent {
         this._selectedChannels = [];
         break;
     }
+  }
+
+  public handlePickerMenuItemClick(event: Event, entityType: string, value: SelectedEntity) {
+    console.log('value ', value);
   }
 
   private clearInput() {
