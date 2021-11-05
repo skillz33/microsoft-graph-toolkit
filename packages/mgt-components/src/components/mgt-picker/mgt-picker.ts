@@ -124,7 +124,7 @@ export class MgtPicker extends MgtTemplatedComponent {
 
   //"2804bc07-1e1f-4938-9085-ce6d756a32d2,e8a02cc7-df4d-4778-956d-784cc9506e5a,c8913c86-ceea-4d39-b1ea-f63a5b675166"
   public render(): TemplateResult {
-    return renderEntityBox(this);
+    return this.renderTemplate('default', null) || renderEntityBox(this);
   }
 
   public queryChanged(e) {
@@ -188,7 +188,7 @@ export class MgtPicker extends MgtTemplatedComponent {
         } else {
           this.hasPeople = false;
         }
-        if (this.teamItems && this.teamItems.length > 0 && this.checkChannelsExistInTeamItems(this.teamItems)) {
+        if (this.teamItems && this.teamItems.length > 0 && this._checkChannelsExistInTeamItems(this.teamItems)) {
           this.hasChannels = true;
         } else {
           this.hasChannels = false;
@@ -221,19 +221,8 @@ export class MgtPicker extends MgtTemplatedComponent {
   public onUserKeyUp(event: KeyboardEvent): void {
     const input = event.target as HTMLInputElement;
     this.userInput = input.value;
-    const keyCode = event.key;
-    console.log(keyCode);
-    switch (keyCode) {
-      case 'Delete':
-        // TODO: Update removing the selected item from the DOM.
-        this.selectedChannels = [];
-        this.selectedPeople = [];
-        break;
 
-      default:
-        this.handleEntitySearch();
-        break;
-    }
+    this._handleEntitySearch();
   }
 
   /**
@@ -256,7 +245,7 @@ export class MgtPicker extends MgtTemplatedComponent {
   /**
    * Use debounce to perform a search after a delay.
    */
-  private handleEntitySearch() {
+  private _handleEntitySearch() {
     if (!this._debounceSearch) {
       this._debounceSearch = debounce(async () => {
         const loadingTimeout = setTimeout(() => {
@@ -296,7 +285,7 @@ export class MgtPicker extends MgtTemplatedComponent {
    * @param teamItems an array of team items with channels.
    * @returns
    */
-  private checkChannelsExistInTeamItems(teamItems: DropdownItem[]): boolean {
+  private _checkChannelsExistInTeamItems(teamItems: DropdownItem[]): boolean {
     for (const team of teamItems) {
       const channels = team.channels;
       if (channels.length > 0) return true;
@@ -305,12 +294,9 @@ export class MgtPicker extends MgtTemplatedComponent {
   }
 
   public handlePickerMenuClick(event: Event, entityType: string, value: SelectedEntity) {
-    // event.preventDefault();
-    // this.clearInput();
-
     switch (entityType) {
       case 'people':
-        if (this.allowSingleSelect()) {
+        if (this._allowSingleSelect()) {
           this.selectedChannels = [];
           this.selectedPeople = [value as IDynamicPerson];
         } else {
@@ -318,7 +304,7 @@ export class MgtPicker extends MgtTemplatedComponent {
         }
         break;
       case 'channel':
-        if (this.allowSingleSelect()) {
+        if (this._allowSingleSelect()) {
           this.selectedPeople = [];
           this.selectedChannels = [value as DropdownItem];
         } else {
@@ -335,7 +321,7 @@ export class MgtPicker extends MgtTemplatedComponent {
     console.log('value ', value);
   }
 
-  private clearInput() {
+  private _clearInput() {
     this.picker.query = '';
     this.userInput = '';
   }
@@ -344,7 +330,7 @@ export class MgtPicker extends MgtTemplatedComponent {
    * Checks if single selection of an entity is allowed or multiple
    * @returns true max-selected = '1' otherwise it is multiselect mode.
    */
-  private allowSingleSelect(): boolean {
+  private _allowSingleSelect(): boolean {
     if (this.picker.maxSelected === '1') return true;
     return false;
   }
