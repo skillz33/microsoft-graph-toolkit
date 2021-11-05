@@ -93,9 +93,9 @@ export class MgtPicker extends MgtTemplatedComponent {
 
   @query('fast-picker') public picker;
 
-  @state() private defaultPeople: IDynamicPerson[];
+  @state() private _defaultPeople: IDynamicPerson[];
 
-  @state() private defaultTeamItems: DropdownItem[];
+  @state() private _defaultTeamItems: DropdownItem[];
   @state() public teamItems: DropdownItem[];
 
   @state() public isLoading: boolean = true;
@@ -104,8 +104,8 @@ export class MgtPicker extends MgtTemplatedComponent {
   @state() public hasChannels: boolean = false;
   @state() private _defaultMaxResults: number = 10;
   @state() private _entityTypes: Entity[];
-  @state() public _selectedChannels: DropdownItem[];
-  @state() public _selectedPeople: IDynamicPerson[];
+  @state() public selectedChannels: DropdownItem[];
+  @state() public selectedPeople: IDynamicPerson[];
 
   /**
    * User input in search.
@@ -155,8 +155,8 @@ export class MgtPicker extends MgtTemplatedComponent {
       const input = this.userInput.toLowerCase();
       const graph = provider.graph.forComponent(this);
 
-      const hasDefaultPeople = this.defaultPeople.length > 0 && entityHasPeople;
-      const hasDefaultTeamItems = this.defaultTeamItems.length > 0 && entityHasChannels;
+      const hasDefaultPeople = this._defaultPeople.length > 0 && entityHasPeople;
+      const hasDefaultTeamItems = this._defaultTeamItems.length > 0 && entityHasChannels;
 
       if (this.entityTypes.length > 0) {
         this._matchEntityToMaxResult();
@@ -165,9 +165,9 @@ export class MgtPicker extends MgtTemplatedComponent {
 
         this.isLoading = true;
 
-        if (entityHasPeople && !hasDefaultPeople) this.defaultPeople = await findPeople(graph, '', peopleMaxResults);
+        if (entityHasPeople && !hasDefaultPeople) this._defaultPeople = await findPeople(graph, '', peopleMaxResults);
         if (entityHasChannels && !hasDefaultTeamItems) {
-          this.defaultTeamItems = await getChannels(graph, teamsMaxResults);
+          this._defaultTeamItems = await getChannels(graph, teamsMaxResults);
         }
 
         if (input) {
@@ -179,8 +179,8 @@ export class MgtPicker extends MgtTemplatedComponent {
             this.teamItems = await getChannels(graph, teamsMaxResults, input);
           }
         } else {
-          this.people = this.defaultPeople;
-          this.teamItems = this.defaultTeamItems;
+          this.people = this._defaultPeople;
+          this.teamItems = this._defaultTeamItems;
         }
 
         if (this.people && this.people.length > 0) {
@@ -226,8 +226,8 @@ export class MgtPicker extends MgtTemplatedComponent {
     switch (keyCode) {
       case 'Delete':
         // TODO: Update removing the selected item from the DOM.
-        this._selectedChannels = [];
-        this._selectedPeople = [];
+        this.selectedChannels = [];
+        this.selectedPeople = [];
         break;
 
       default:
@@ -244,13 +244,13 @@ export class MgtPicker extends MgtTemplatedComponent {
    */
   protected clearState(): void {
     this.userInput = '';
-    this.defaultTeamItems = [];
-    this.defaultPeople = [];
+    this._defaultTeamItems = [];
+    this._defaultPeople = [];
     this.hasChannels = false;
     this.hasPeople = false;
     this._entityTypes = [];
-    this._selectedPeople = [];
-    this._selectedChannels = [];
+    this.selectedPeople = [];
+    this.selectedChannels = [];
   }
 
   /**
@@ -311,22 +311,22 @@ export class MgtPicker extends MgtTemplatedComponent {
     switch (entityType) {
       case 'people':
         if (this.allowSingleSelect()) {
-          this._selectedChannels = [];
-          this._selectedPeople = [value as IDynamicPerson];
+          this.selectedChannels = [];
+          this.selectedPeople = [value as IDynamicPerson];
         } else {
-          this._selectedPeople = [...this._selectedPeople, value as IDynamicPerson];
+          this.selectedPeople = [...this.selectedPeople, value as IDynamicPerson];
         }
         break;
       case 'channel':
         if (this.allowSingleSelect()) {
-          this._selectedPeople = [];
-          this._selectedChannels = [value as DropdownItem];
+          this.selectedPeople = [];
+          this.selectedChannels = [value as DropdownItem];
         } else {
-          this._selectedChannels = [...this._selectedChannels, value as DropdownItem];
+          this.selectedChannels = [...this.selectedChannels, value as DropdownItem];
         }
       default:
-        this._selectedPeople = [];
-        this._selectedChannels = [];
+        this.selectedPeople = [];
+        this.selectedChannels = [];
         break;
     }
   }
