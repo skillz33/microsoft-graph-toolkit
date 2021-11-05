@@ -68,9 +68,10 @@ export function pickerDropDownMenuTemplate(picker: MgtPicker): TemplateResult {
       width: inherit;
       color: black;
       padding: 0px;
-      box-shadow: 0px 1.6px 3.6px rgba(0, 0, 0, 0.13), 0px 1.6px 3.6px rgba(0, 0, 0, 0.13);
+      /* box-shadow: 0px 1.6px 3.6px rgba(0, 0, 0, 0.13), 0px 1.6px 3.6px rgba(0, 0, 0, 0.13); */
       border-radius: 0px 0px 4px 4px;
       margin-top: 7px;
+      filter: drop-shadow()(0px 12.8px 28.8px rgba(0, 0, 0, 0.13)) drop-shadow(0px 0px 9.2px rgba(0, 0, 0, 0.11))
     }
     fast-picker {
       width: 368px;
@@ -150,16 +151,8 @@ export function pickerDropDownMenuTemplate(picker: MgtPicker): TemplateResult {
     }
   </style>
       <fast-picker-menu id="custom-menu">
-      ${
-        picker.hasPeople
-          ? peoplePickerRepeatTemplate(picker)
-          : html`<div class="entity-text">People</div><p class="not-found-text">No people found</p>`
-      }
-      ${
-        picker.hasChannels
-          ? channelPickerRepeatTemplate(picker)
-          : html`<div class="entity-text">Channels</div><p class="not-found-text">No channels found</p>`
-      }
+      ${picker.hasPeople ? peoplePickerRepeatTemplate(picker) : picker.renderNoResultsFound('People')}
+      ${picker.hasChannels ? channelPickerRepeatTemplate(picker) : picker.renderNoResultsFound('Channel')}
       </fast-picker-menu>
     `;
 }

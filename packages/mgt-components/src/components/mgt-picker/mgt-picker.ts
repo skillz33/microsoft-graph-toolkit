@@ -334,4 +334,20 @@ export class MgtPicker extends MgtTemplatedComponent {
     if (this.picker.maxSelected === '1') return true;
     return false;
   }
+
+  /**
+   * Renders text for no results found when an entity is fetched.
+   * @param entity string name of the entity
+   * @returns template result
+   */
+  public renderNoResultsFound(entity: string): TemplateResult {
+    const errorEntity = `error-${entity.toLowerCase()}`;
+    console.log(this.hasTemplate('error-people'));
+    if (this.hasTemplate(errorEntity)) {
+      const customErrorTpl = this.renderTemplate(errorEntity, null);
+      return html`<div class="entity-text">${entity}</div>${customErrorTpl}`;
+    }
+    const peopleNotFoundDefault = html`<p class="not-found-text">No ${entity} found</p>`;
+    return html`<div class="entity-text">${entity}</div>${peopleNotFoundDefault}`;
+  }
 }
