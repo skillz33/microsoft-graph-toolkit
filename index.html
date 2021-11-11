@@ -65,6 +65,11 @@
     <mgt-picker entity-types="channels,people" max-results="2,5">
       <template data-type="error-people"> <p>No poeplr are hiyaaa</p> </template>
     </mgt-picker>
+    <script> 
+      document.querySelector('mgt-picker').addEventListener('selectionChanged', e => {
+          console.log(e.detail)
+      });
+    </script>
 <!--
     <fast-picker
       default-selection=""

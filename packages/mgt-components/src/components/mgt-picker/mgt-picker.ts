@@ -1,10 +1,9 @@
 import { MgtTemplatedComponent, Providers, ProviderState } from '@microsoft/mgt-element';
 import { customElement, property, query, state, html, TemplateResult } from 'lit-element';
 import { debounce } from '../../utils/Utils';
-import { findPeople, getPeople } from '../../graph/graph.people';
+import { findPeople } from '../../graph/graph.people';
 import { IDynamicPerson } from '../../graph/types';
-import { itemContentsTemplate, personMenuContentTemplate } from './mgt-picker-fast-templates';
-import { pickerDropDownMenuTemplate, renderEntityBox, renderFastPickerInput } from './mgt-picker-lit-templates';
+import { renderEntityBox } from './mgt-picker-lit-templates';
 import { Channel } from '@microsoft/microsoft-graph-types';
 import { DropdownItem, getChannels } from '../../graph/graph.teams-channels';
 import { MgtPeoplePicker, MgtTeamsChannelPicker } from '../components';
@@ -36,6 +35,7 @@ export class MgtPicker extends MgtTemplatedComponent {
   constructor() {
     super();
     this.clearState();
+    this.addEventListener('pickeriteminvoked', e => this.handlePickerMenuItemClick(e));
   }
 
   /**
@@ -299,16 +299,20 @@ export class MgtPicker extends MgtTemplatedComponent {
         if (this._allowSingleSelect()) {
           this.selectedChannels = [];
           this.selectedPeople = [value as IDynamicPerson];
+          this._fireSelectionChangedEvent();
         } else {
           this.selectedPeople = [...this.selectedPeople, value as IDynamicPerson];
+          this._fireSelectionChangedEvent('people');
         }
         break;
       case 'channel':
         if (this._allowSingleSelect()) {
           this.selectedPeople = [];
           this.selectedChannels = [value as DropdownItem];
+          this._fireSelectionChangedEvent();
         } else {
           this.selectedChannels = [...this.selectedChannels, value as DropdownItem];
+          this._fireSelectionChangedEvent('channel');
         }
       default:
         this.selectedPeople = [];
@@ -317,8 +321,17 @@ export class MgtPicker extends MgtTemplatedComponent {
     }
   }
 
-  public handlePickerMenuItemClick(event: Event, entityType: string, value: SelectedEntity) {
-    console.log('value ', value);
+  /**
+   * Handles the event fired when you deselect a selected item. It:
+   *  - Removes the entity from the respective selection.
+   *  - Fires the selectionChanged event on the selection.
+   * @param event the fired event instance.
+   * @param entityType the entity name during the time of emitting the event.
+   * @param value the entire entity value.
+   */
+  public handlePickerMenuItemClick(event: Event, entityType?: string, value?: SelectedEntity) {
+    const element = event.target as HTMLInputElement;
+    console.log('value ', element.value);
   }
 
   private _clearInput() {
@@ -349,5 +362,32 @@ export class MgtPicker extends MgtTemplatedComponent {
     }
     const peopleNotFoundDefault = html`<p class="not-found-text">No ${entity} found</p>`;
     return html`<div class="entity-text">${entity}</div>${peopleNotFoundDefault}`;
+  }
+
+  /**
+   * Fires a custom selection changed event when selection changes occur.
+   * In single select mode, the selected entity will apply the changes and
+   * the rest of the other entities will be changed to an empty array.
+   *
+   * In multiselect mode, the entities with changes are the ones that will
+   * be affected.
+   *
+   * TODO: change this logic when we implement multiple select.
+   * @param entity string identifying the entity that has changed.
+   */
+  private _fireSelectionChangedEvent(entity?: string) {
+    switch (entity) {
+      case 'people':
+        this.fireCustomEvent('selectionChanged', this.selectedPeople);
+        break;
+      case 'channel':
+        this.fireCustomEvent('selectionChanged', this.selectedChannels);
+        break;
+
+      default:
+        this.fireCustomEvent('selectionChanged', this.selectedPeople);
+        this.fireCustomEvent('selectionChanged', this.selectedChannels);
+        break;
+    }
   }
 }
