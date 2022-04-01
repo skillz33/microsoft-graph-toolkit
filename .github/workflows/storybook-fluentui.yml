@@ -5,7 +5,7 @@ name: Build CI
 
 on:
   push:
-    branches: [main, next/**]
+    branches: [next/fluentui]
 
 jobs:
   build:
@@ -31,9 +31,9 @@ jobs:
           yarn build
           yarn storybook:build
 
-      - name: Deploy mgt.dev/next 🚀
+      - name: Deploy mgt.dev/next/fluentui 🚀
         uses: JamesIves/github-pages-deploy-action@4.1.1
         with:
           branch: gh-pages
           folder: storybook-static
-          target-folder: next
+          target-folder: next/fluentui
