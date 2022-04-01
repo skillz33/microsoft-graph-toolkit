@@ -39,10 +39,10 @@ jobs:
           folder: storybook-static
           target-folder: next
 
-      - name: Deploy mgt.dev/${{ github.ref_name }} 🚀
-        if: ${{ github.ref_name }} != 'main'
+      - name: Deploy mgt.dev/v3.0 🚀
+        if: ${{ github.ref_name }} == 'next/fluentui'
         uses: JamesIves/github-pages-deploy-action@4.1.1
         with:
           branch: gh-pages
           folder: storybook-static
-          target-folder: ${{ github.ref_name }}
+          target-folder: v3.0
