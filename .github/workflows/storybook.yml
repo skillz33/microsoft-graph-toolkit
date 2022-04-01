@@ -5,7 +5,7 @@ name: Build CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, next/**]
 
 jobs:
   build:
@@ -31,9 +31,21 @@ jobs:
           yarn build
           yarn storybook:build
 
-      - name: Deploy mgt.dev/next 🚀
-        uses: JamesIves/github-pages-deploy-action@4.1.1
-        with:
-          branch: gh-pages
-          folder: storybook-static
-          target-folder: next
+      - name: Echo
+        run: echo ${{ github.ref_name }}
+
+      # - name: Deploy mgt.dev/next 🚀
+      #   if: ${{ github.ref_name }} == 'main'
+      #   uses: JamesIves/github-pages-deploy-action@4.1.1
+      #   with:
+      #     branch: gh-pages
+      #     folder: storybook-static
+      #     target-folder: next
+
+      # - name: Deploy mgt.dev/${{ github.ref_name }} 🚀
+      #   if: ${{ github.ref_name }} != 'main'
+      #   uses: JamesIves/github-pages-deploy-action@4.1.1
+      #   with:
+      #     branch: gh-pages
+      #     folder: storybook-static
+      #     target-folder: ${{ github.ref_name }}
