@@ -24,15 +24,15 @@ jobs:
           node-version: ${{ matrix.node-version }}
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Build 🛠
-        run: |
-          npm install -g yarn lerna
-          yarn
-          yarn build
-          yarn storybook:build
-
       - name: Echo
         run: echo ${{ github.ref_name }}
+
+      # - name: Build 🛠
+      #   run: |
+      #     npm install -g yarn lerna
+      #     yarn
+      #     yarn build
+      #     yarn storybook:build
 
       # - name: Deploy mgt.dev/next 🚀
       #   if: ${{ github.ref_name }} == 'main'
