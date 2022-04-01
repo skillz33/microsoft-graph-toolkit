@@ -24,28 +24,25 @@ jobs:
           node-version: ${{ matrix.node-version }}
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Echo
-        run: echo ${{ github.ref_name }}
+      - name: Build 🛠
+        run: |
+          npm install -g yarn lerna
+          yarn
+          yarn build
+          yarn storybook:build
 
-      # - name: Build 🛠
-      #   run: |
-      #     npm install -g yarn lerna
-      #     yarn
-      #     yarn build
-      #     yarn storybook:build
+      - name: Deploy mgt.dev/next 🚀
+        if: ${{ github.ref_name }} == 'main'
+        uses: JamesIves/github-pages-deploy-action@4.1.1
+        with:
+          branch: gh-pages
+          folder: storybook-static
+          target-folder: next
 
-      # - name: Deploy mgt.dev/next 🚀
-      #   if: ${{ github.ref_name }} == 'main'
-      #   uses: JamesIves/github-pages-deploy-action@4.1.1
-      #   with:
-      #     branch: gh-pages
-      #     folder: storybook-static
-      #     target-folder: next
-
-      # - name: Deploy mgt.dev/${{ github.ref_name }} 🚀
-      #   if: ${{ github.ref_name }} != 'main'
-      #   uses: JamesIves/github-pages-deploy-action@4.1.1
-      #   with:
-      #     branch: gh-pages
-      #     folder: storybook-static
-      #     target-folder: ${{ github.ref_name }}
+      - name: Deploy mgt.dev/${{ github.ref_name }} 🚀
+        if: ${{ github.ref_name }} != 'main'
+        uses: JamesIves/github-pages-deploy-action@4.1.1
+        with:
+          branch: gh-pages
+          folder: storybook-static
+          target-folder: ${{ github.ref_name }}
