@@ -50,9 +50,8 @@ $presence-color-oof: #b4009e;
 }
 
 :host {
-  display: inline-block;
+  display: block;
   font-family: $font-family;
-  vertical-align: top;
 }
 
 :host .root {
@@ -514,6 +513,10 @@ mgt-person .person-root {
       font-weight: $font-weight;
       text-transform: $text-transform;
       line-height: 20px;
+      & > text {
+        padding: 0;
+        margin: 0;
+      }
     }
 
     .line2 {
@@ -570,6 +573,11 @@ mgt-person .avatar-icon {
     width: $avatar-size-4-lines;
     height: $avatar-size-4-lines;
   }
+}
+
+:host .vertical,
+mgt-person .vertical {
+  display: block;
 }
 
 [dir='rtl'] {
