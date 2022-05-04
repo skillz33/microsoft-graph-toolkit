@@ -547,9 +547,21 @@ export class MgtPersonCard extends MgtTemplatedComponent {
       `;
     }
 
+    // Video
+    let video: TemplateResult;
+    if (userPerson.userPrincipalName) {
+      // Change to video call api URL when available
+      video = html`
+        <div class="icon" @click=${() => this.chatUser()} tabindex=0>
+          ${getSvg(SvgIcon.Video)}
+          <span>${this.strings.startVideoLinkSubtitle}</span>
+        </div>
+      `;
+    }
+
     return html`
       <div class="base-icons">
-        ${email} ${chat}
+        ${email} ${chat} ${video}
       </div>
     `;
   }

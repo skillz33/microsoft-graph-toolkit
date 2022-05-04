@@ -96,11 +96,10 @@ $person-card-details-item-font-size: var(--person-card-details-item-font-size, 1
 
         span {
           margin-left: 8px;
-          color: #023b8f;
         }
       }
       .icon:hover {
-        color: #012e7f;
+        background-color: set-var(background-color--hover, $theme-default, $common);
       }
     }
   }
