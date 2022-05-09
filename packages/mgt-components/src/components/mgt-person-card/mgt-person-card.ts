@@ -991,7 +991,6 @@ export class MgtPersonCard extends MgtTemplatedComponent {
     }
 
     const contactSections = new MgtPersonCardContact(this.internalPersonDetails as User);
-    console.log('contactSessions: ', contactSections);
     if (contactSections.hasData) {
       this.sections.push(contactSections);
     }
@@ -999,7 +998,6 @@ export class MgtPersonCard extends MgtTemplatedComponent {
     if (!this.state) {
       return;
     }
-    console.log('state', this.state);
 
     const { person, directReports, messages, files, profile } = this.state;
 
@@ -1024,7 +1022,6 @@ export class MgtPersonCard extends MgtTemplatedComponent {
         this.sections.push(profileSection);
       }
     }
-    console.log(this.sections);
   }
 
   private getImage(): string {
