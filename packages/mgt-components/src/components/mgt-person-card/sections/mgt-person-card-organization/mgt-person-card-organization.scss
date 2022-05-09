@@ -44,6 +44,7 @@
       font-weight: 600;
       color: set-var(title__color__subtitle, $theme-default, $common);
       margin: 0 20px 20px 20px;
+      line-height: 19px;
     }
 
     .subtitle {
@@ -73,21 +74,16 @@
       margin-right: 20px;
 
       &.org-member--target {
-        background-color: set-var(background-color__sub2, $theme-default, $common);
+        background-color: $greyBackground;
         border: 1px solid $commblue_primary;
       }
 
-      &.org-member--direct-report:not(:last-child) {
-        border-bottom: none;
-      }
-
       &:not(.org-member--target) {
-        background-color: set-var(background-color__sub1, $theme-default, $common);
         border: 1px solid set-var(line-seperator__color, $theme-default, $common);
 
         &:hover {
           cursor: pointer;
-          background-color: set-var(background-color--hover, $theme-default, $common);
+          background-color: $greyHover;
         }
       }
 
@@ -126,7 +122,7 @@
       }
     }
 
-    .org-member__separator {
+    .org-member__separator:not(:last-child) {
       border: 1px solid set-var(line-seperator__color, $theme-default, $common);
       box-sizing: border-box;
       width: 0;
@@ -146,7 +142,6 @@
 
       .coworker__person {
         height: 46px;
-        width: 46px;
         border-radius: 46px;
         margin-right: 8px;
 
