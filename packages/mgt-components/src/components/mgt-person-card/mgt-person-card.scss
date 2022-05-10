@@ -157,6 +157,8 @@ $person-card-details-item-font-size: var(--person-card-details-item-font-size, 1
         // border: none none none solid $icon--active;
         border-bottom-color: $icon--active;
         border-bottom-style: solid;
+        border: 3px solid #036ac4;
+        border-style: none none solid;
         border-left-color: none;
         border-right-color: none;
         border-top-color: none;
