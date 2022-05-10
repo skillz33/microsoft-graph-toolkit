@@ -154,7 +154,8 @@ export class MgtPersonCard extends MgtTemplatedComponent {
       organization: { showWorksWith: true },
       profile: true
     },
-    useContactApis: true
+    useContactApis: true,
+    isSendMessageVisible: true
   };
 
   /**
@@ -700,27 +701,27 @@ export class MgtPersonCard extends MgtTemplatedComponent {
       );
     }
 
-    // To be included when support for direct messaging is added
-    // ${this.internalPersonDetails.id !== this._me.id && MgtPersonCard.config.isSendMessageVisible
-    //   ? html`
-    //       <div class="quick-message">
-    //         <input
-    //           type="text"
-    //           class="quick-message__input"
-    //           placeholder="Message ${this.internalPersonDetails.displayName}"
-    //           .value=${this._chatInput}
-    //           @input=${(e: Event) => {
-    //             this._chatInput = (e.target as HTMLInputElement).value;
-    //           }}
-    //         />
-    //         <button class="quick-message__send" @click=${() => this.sendQuickMessage()}>
-    //           ${getSvg(SvgIcon.Send)}
-    //         </button>
-    //       </div>
-    //     `
-    //   : null}
-
     return html`
+    ${
+      this.internalPersonDetails.id !== this._me.id && MgtPersonCard.config.isSendMessageVisible
+        ? html`
+          <div class="quick-message">
+            <input
+              type="text"
+              class="quick-message__input"
+              placeholder=${this.strings.quickMessagePlaceholder}
+              .value=${this._chatInput}
+              @input=${(e: Event) => {
+                this._chatInput = (e.target as HTMLInputElement).value;
+              }}
+            />
+            <button class="quick-message__send" @click=${() => this.sendQuickMessage()}>
+              ${getSvg(SvgIcon.Send)}
+            </button>
+          </div>
+        `
+        : null
+    }
       <div class="sections">
         ${compactTemplates}
       </div>
